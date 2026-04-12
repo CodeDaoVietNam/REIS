@@ -1,6 +1,6 @@
 # REIS — Project Progress
 
-> **Last updated:** 2026-04-11
+> **Last updated:** 2026-04-12
 > **Session context:** Compacts được lưu tại `~/.claude/projects/*/sessions/`
 
 ---
@@ -8,19 +8,19 @@
 ## 📊 Overall Status
 
 ```
-Stage 1: Data Pipeline        ████████████░░░░░░  ~65%  ⏳ In Testing
+Stage 1: Data Pipeline        ████████████████░░  ~85%  ✅ Integration Testing
 Stage 2A: ML Models           ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2B: Insights (LLM)      ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2C: API & WebSocket     ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2D: Frontend             ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2E: Airflow MLOps       ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
-Stage 2F: Notebooks (EDA)     ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
+Stage 2F: Notebooks (EDA)     ████░░░░░░░░░░░░░░░  15%  ⏳ In Progress
 Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 ```
 
 ---
 
-## ✅ STAGE 1 — Data Pipeline (ĐÃ HOÀN THÀNH)
+## ✅ STAGE 1 — Data Pipeline (ĐÃ HOÀN THÀNH ✅)
 
 ### Files đã implement
 
@@ -34,10 +34,47 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 | `backend/ingestion/producer.py` | ✅ Done | Kafka producer (aiokafka) + Redis DLQ |
 | `backend/ingestion/scheduler.py` | ✅ Done | APScheduler, immediate first cycle, graceful shutdown |
 | `backend/processing/consumer.py` | ✅ Done | Kafka → TimescaleDB batch insert, manual commit |
+| `backend/processing/feature_engineer.py` | ✅ Done | Build 13-feature vectors, lag + rolling stats |
 | `backend/scripts/setup_db.py` | ✅ Done | Tạo tables + hypertable + indexes |
 | `backend/scripts/init-db.sql` | ✅ Done | SQL schema reference |
 | `backend/notebooks/01_api_exploration.ipynb` | ✅ Done | Explore Open-Meteo API structure |
 | `backend/notebooks/03_backfill_historical_data.ipynb` | ✅ Done | Cào 50 ngày data lịch sử |
+
+### Integration tests đã chạy (2026-04-12)
+
+```
+✅ collector → Kafka: 63 provinces fetched + published successfully
+✅ Kafka consumer → TimescaleDB: batch insert working, offset committed
+✅ Redis DLQ: routing on Kafka failures working
+✅ Scheduler: immediate first cycle + 15-min interval confirmed
+```
+
+### Bugs đã fix
+
+```
+2026-04-12 — Pipeline integration fixes:
+✅ collector.py: Đã xóa PROVINCE_COORDS hardcode (có id=64 sai)
+   → Dùng PROVINCES_COORDS từ constants.py (single source of truth)
+   → Chỉ collect đúng 63 tỉnh (province_id 1-63)
+
+✅ producer.py: Kafka value_serializer double-encoding (escaped JSON strings)
+   → Fix: send dict objects (không string/bytes), để value_serializer encode
+   → Producer gửi dict → aiokafka encode JSON bytes → Kafka store
+
+✅ producer.py: aiokafka `retries` parameter không supported
+   → Removed retries=, retry_max_timeout_ms= (not in AIOKafkaProducer)
+
+✅ consumer.py: KAFKA_BOOTSTRAP undefined → KAFKA_BOOTSTRAP_SERVERS
+
+✅ consumer.py: UnboundLocalError với _pool (global declaration missing)
+   → Moved _pool = None before _get_pool(), added global _pool
+
+✅ consumer.py: TypeError datetime string → datetime object conversion
+   → Added _parse_time() với datetime.fromisoformat() cho ISO 8601 strings
+
+✅ scheduler.py: Import paths sai (backend.ingestion → ingestion)
+   → Fixed sys.path: parents[2] → parents[1]
+```
 
 ### Tests đã viết
 
@@ -47,19 +84,10 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 | `tests/test_producer.py` | 5 cases | 200 |
 | `tests/test_scheduler.py` | 6 cases | 143 |
 | `tests/test_consumer.py` | 7 cases | 187 |
-| `tests/test_collector.py` | (có file) | 154 |
+| `tests/test_collector.py` | 5 cases | 154 |
 | `tests/test_integration.py` | 7 cases | 311 |
 
-**Tổng: 37+ test cases, ~1260 lines**
-
-### ⚠️ Bug đã biết
-
-```
-collector.py line 3: "64 tỉnh Việt Nam"
-→ Validator chỉ chấp nhận province_id 1-63
-→ Province id=64 sẽ bị REJECT vào DLQ
-→ Cần fix: xóa province thứ 64 hoặc mở rộng range
-```
+**Tổng: 42+ test cases, ~1260 lines**
 
 ---
 
@@ -156,12 +184,13 @@ frontend/src/
 
 ---
 
-## ⏳ STAGE 2F — Notebooks EDA (CHƯA LÀM)
+## ⏳ STAGE 2F — Notebooks EDA (ĐANG LÀM)
 
-| Notebook | Mô tả | Priority |
-|----------|-------|----------|
-| `02_data_quality.ipynb` | Missing values, duplicates, validation errors | 🔴 Cao |
-| `01_eda_air_quality.ipynb` | Phân tích phân bố, correlations, seasonality | 🔴 Cao |
+| Notebook | Status | Mô tả |
+|----------|--------|-------|
+| `01_api_exploration.ipynb` | ✅ Done | Explore Open-Meteo API structure |
+| `02_data_quality.ipynb` | 🔲 Pending | Missing values, duplicates, validation errors |
+| `03_backfill_historical_data.ipynb` | ✅ Done | Cào 50 ngày data lịch sử |
 
 ---
 
@@ -305,22 +334,26 @@ ENV, LOG_LEVEL, INSIGHT_CACHE_TTL, ANOMALY_THRESHOLD, CRITICAL_THRESHOLD
 
 ---
 
-## 🚀 Next Steps (Sau khi compact/lần mới)
+## 🚀 Next Steps
 
-### Ngay lập tức (this session)
-1. Chạy `pytest backend/tests/ -v` để verify Stage 1
-2. Bật Docker: `docker-compose up -d zookeeper kafka timescaledb redis`
-3. Setup DB: `python backend/scripts/setup_db.py`
-4. Test pipeline: scheduler (Terminal 1) + consumer (Terminal 2)
-
-### Sau khi Stage 1 verified
+### Ngay lập tức (Stage 2A - ML Models)
 1. Viết `backend/models/isolation_forest.py` + tests
-2. Viết `backend/models/predict.py` + tests
-3. Viết `backend/insights/prompt_builder.py` + `llm_client.py` + tests
-4. Viết `backend/api/main.py` + routes + tests
-5. Viết `01_eda_air_quality.ipynb` + `02_data_quality.ipynb`
-6. Viết `tools/simulator.py`
-7. Frontend components
+2. Viết `backend/models/lstm_model.py` + tests
+3. Viết `backend/models/prophet_model.py` + tests
+4. Viết `backend/models/predict.py` + tests (unified interface)
+
+### Sau đó (Stage 2B - Insights)
+5. Viết `backend/insights/prompt_builder.py` + tests
+6. Viết `backend/insights/llm_client.py` + tests (mock API)
+7. Viết `backend/insights/insight_cache.py`
+
+### Tiếp theo (Stage 2C - API)
+8. Viết `backend/api/main.py` + routes + tests
+9. Viết WebSocket broadcaster + alert manager
+
+### Cuối cùng (Frontend)
+10. React components + pages + hooks
+11. `tools/simulator.py` cho demo
 
 ---
 
@@ -346,5 +379,14 @@ ENV, LOG_LEVEL, INSIGHT_CACHE_TTL, ANOMALY_THRESHOLD, CRITICAL_THRESHOLD
 - Đã viết 6 test files (~1260 lines)
 - Đã viết 2 notebooks (01_api_exploration, 03_backfill)
 - Đã tạo PROGRESS.md này
-- Cần: chạy pytest, test pipeline thực tế, tiếp tục Stage 2A ML
+
+2026-04-12 — Integration testing + pipeline fixes
+- Đã fix Kafka double-encoding (producer gửi dict → serializer encode)
+- Đã fix aiokafka retries parameter
+- Đã fix consumer datetime parsing (_parse_time)
+- Đã fix scheduler import paths
+- Đã fix collector province_id=64 bug
+- Đã chạy pipeline E2E: collector → Kafka → consumer → TimescaleDB ✅
+- Stage 1 E2E verified: 63 provinces × cycles → data vào DB thành công
+- PROGRESS.md updated + push lên GitHub
 ```

@@ -28,7 +28,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaError
 
 # ── Add project root to sys.path ───────────────────────────────────────────────
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config.settings import settings
 
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 KAFKA_TOPIC       = "env.readings.raw"
 KAFKA_GROUP_ID    = settings.KAFKA_CONSUMER_GROUP  # "reis-consumer-group"
-KAFKA_BOOTSTRAP   = settings.KAFKA_BOOTSTRAP_SERVERS
+KAFKA_BOOTSTRAP_SERVERS = settings.KAFKA_BOOTSTRAP_SERVERS
 
 # TimescaleDB config
 DB_HOST     = settings.DB_HOST
@@ -88,8 +88,13 @@ INSERT_SQL = """
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Global pool instance (MUST be defined BEFORE _get_pool function)
+_pool: asyncpg.Pool | None = None
+
+
 async def _get_pool() -> asyncpg.Pool:
     """Create (or return cached) asyncpg connection pool."""
+    global _pool
     if _pool is None:
         _pool = await asyncpg.create_pool(
             host=DB_HOST,
@@ -107,7 +112,26 @@ async def _get_pool() -> asyncpg.Pool:
     return _pool
 
 
-_pool: asyncpg.Pool | None = None
+def _parse_time(value: str | None) -> datetime | None:
+    """Parse chuỗi ISO 8601 từ Kafka JSON → datetime object (UTC-aware).
+
+    Producer dùng json.dumps(default=str) nên datetime bị serialize thành string.
+    asyncpg yêu cầu datetime object cho TIMESTAMPTZ column.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        # Đã là datetime (vd: khi test trực tiếp), giữ nguyên
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    # Parse ISO 8601: "2026-04-12T13:15:00+00:00" hoặc "2026-04-12 13:15:00"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, AttributeError) as exc:
+        logger.warning("Cannot parse time value %r: %s — using None", value, exc)
+        return None
 
 
 def _msg_to_tuple(data: dict) -> tuple:
@@ -115,7 +139,7 @@ def _msg_to_tuple(data: dict) -> tuple:
     now = datetime.now(timezone.utc)
     return (
         # ── Identifiers ─────────────────────────────────────────────────
-        data.get("time"),          # $1  TIMESTAMPTZ
+        _parse_time(data.get("time")),  # $1  TIMESTAMPTZ (parsed từ string)
         data.get("province_id"),   # $2  INT
         # ── Weather ─────────────────────────────────────────────────────
         data.get("temperature"),   # $3  FLOAT4
@@ -181,7 +205,6 @@ async def consume() -> None:
         group_id=KAFKA_GROUP_ID,
         auto_offset_reset="latest",    # Production: đọc từ message mới nhất
         enable_auto_commit=False,       # Manual commit only
-        value_deserializer=lambda m: json.loads(m.decode("utf-8")),
         session_timeout_ms=30000,
         heartbeat_interval_ms=10000,
     )
@@ -198,8 +221,11 @@ async def consume() -> None:
     try:
         async for msg in consumer:
             try:
-                # Parse + basic sanity check
-                data = msg.value
+                # Decode bytes → string → dict
+                raw = msg.value
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                data = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(data, dict):
                     raise ValueError(f"Expected dict, got {type(data)}")
 
@@ -270,6 +296,7 @@ async def run_standalone() -> None:
     Usage:
         python backend/processing/consumer.py
     """
+    global _pool
     logger.info("Starting standalone consumer process...")
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
