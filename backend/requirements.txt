@@ -1,0 +1,61 @@
+# REIS — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core Data Pipeline ───────────────────────────────────────────────
+requests==2.31.0          # HTTP client (sync)
+aiohttp==3.9.3            # Async HTTP client (async pipeline)
+
+# ── Database ────────────────────────────────────────────────────────
+# asyncpg: fast async driver (requires libpq-dev: apt install libpq-dev)
+asyncpg==0.30.0           # Async PostgreSQL/TimescaleDB driver
+# psycopg3: modern async/sync driver (works on Python 3.13 without libpq-dev)
+psycopg[binary]==3.1.18   # PostgreSQL driver v3
+sqlalchemy[asyncio]==2.0.25  # ORM
+
+# ── Message Broker ─────────────────────────────────────────────────
+# confluent-kafka: requires librdkafka
+#   Linux:  sudo apt install librdkafka-dev
+#   macOS:  brew install librdkafka
+# If install fails, use kafka-python-ng instead (pure Python, no C dep)
+kafka-python-ng==2.2.2    # Pure Python Kafka client (sync, legacy)
+aiokafka==0.10.0           # Async Kafka client (producer/consumer trong async pipeline)
+
+# ── Cache ───────────────────────────────────────────────────────────
+redis==5.0.1              # Redis client (DLQ + insight cache)
+
+# ── Validation ─────────────────────────────────────────────────────
+pydantic==2.6.1           # Data validation (EnvironmentReading model)
+pydantic-settings==2.1.0   # Pydantic + env vars
+
+# ── Scheduling ─────────────────────────────────────────────────────
+APScheduler==3.10.4       # APScheduler (15-min collection cycles)
+
+# ── API Server ─────────────────────────────────────────────────────
+fastapi==0.109.2          # FastAPI web framework
+uvicorn[standard]==0.27.1  # ASGI server (with reload, logs)
+python-multipart==0.0.9   # Form data parsing
+
+# ── LLM (Generative AI) ─────────────────────────────────────────────
+google-generativeai==0.8.3  # Gemini API client
+
+# ── ML ─────────────────────────────────────────────────────────────
+numpy==1.26.4             # Numerical computing
+polars==1.12.0            # Fast DataFrame (works on Python 3.13, no C extension)
+pandas==2.2.3             # DataFrame (upgrade to 2.2.3 for Python 3.13 fix)
+scikit-learn==1.4.0       # Isolation Forest, preprocessing
+joblib==1.3.2              # Model serialization
+mlflow==2.13.0            # MLflow tracking client
+
+# Prophet — install separately after fixing pystan:
+# pip install prophet
+
+# ── Testing ───────────────────────────────────────────────────────
+pytest==8.3.0              # Testing framework
+pytest-asyncio==0.24.0     # Async test support
+pytest-cov==4.1.0          # Coverage reports
+
+# ── Dev Utilities ─────────────────────────────────────────────────
+python-dotenv==1.0.1       # Load .env files
+ruff==0.2.2                # Linter & formatter
+mypy==1.9.0                # Static type checker
+jupyterlab==4.1.2           # Jupyter notebooks

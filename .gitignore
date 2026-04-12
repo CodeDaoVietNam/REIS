@@ -1,0 +1,125 @@
+# ── Environment & Secrets ─────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python version
+.python-version
+
+# ── Jupyter Notebooks ───────────────────────────────────────────────
+*.ipynb_checkpoints/
+.ipynb_checkpoints/
+# Keep outputs out of git (keep code only)
+.ipynb
+# If you want to keep notebooks in git, comment the line above and use:
+# *.ipynb  filters below in a .gitattributes file instead
+
+# ── Data & Output ───────────────────────────────────────────────────
+data_output/
+*.csv
+*.parquet
+*.feather
+
+# ── Docker volumes (NEVER commit) ──────────────────────────────────
+# Named volumes are stored in /var/lib/docker/volumes/
+# Never reference them here — they are managed by docker-compose
+
+# ── ML & Models ────────────────────────────────────────────────────
+backend/models/artifacts/*.pkl
+backend/models/artifacts/*.h5
+backend/models/artifacts/*.pt
+backend/models/artifacts/*.onnx
+backend/models/artifacts/*.joblib
+mlruns/
+mlartifacts/
+*.pth
+*.ckpt
+*.h5
+
+# ── Logs ───────────────────────────────────────────────────────────
+*.log
+logs/
+airflow/logs/
+
+# ── IDE ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Node (frontend) ────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.js
+frontend/coverage/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# ── TypeScript (frontend) ───────────────────────────────────────────
+frontend/.turbo/
+*.tsbuildinfo
+
+# ── Airflow ────────────────────────────────────────────────────────
+airflow/airflow.db
+airflow/unittests.cfg
+airflow/webserver_config.py
+airflow/dags/*.pyc
+airflow/logs/
+
+# ── Kafka / Zookeeper (local dev data) ─────────────────────────────
+kafka-data/
+zookeeper-data/
+
+# ── TimescaleDB / Redis (local dev data) ──────────────────────────
+# Named volumes are managed by docker-compose — DO NOT add them here
+# But local dev data can be ignored:
+*.sql_dump
+*.backup
+
+# ── Claude Code (plan files, memory) ───────────────────────────────
+.claude/
+# Uncomment below only if you want to exclude plan files from git:
+# .claude/plans/
+
+# ── Confidential project docs ───────────────────────────────────────
+docs/REIS_Stage1_2_Docs.docx   # Remove from git if sensitive
+docs/REIS_Project_Plan.docx
+
+# ── Test ───────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Temp / Misc ────────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
