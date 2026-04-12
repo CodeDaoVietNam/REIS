@@ -20,13 +20,13 @@ import sys
 from pathlib import Path
 
 # ── Add project root to sys.path for absolute imports ──────────────────────
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
-from backend.ingestion.collector import collect_all_provinces
-from backend.ingestion.producer import publish_records, close as close_producer
+from ingestion.collector import collect_all_provinces
+from ingestion.producer import publish_records, close as close_producer
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(

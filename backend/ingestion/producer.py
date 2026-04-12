@@ -64,7 +64,8 @@ async def _get_producer() -> AIOKafkaProducer:
             key_serializer=lambda k: str(k).encode("utf-8"),
             # Đợi acknowledgment từ tất cả replicas
             acks="all",
-            retries=3,
+            # Retry settings
+            send_backoff_ms=100,
         )
         await _producer.start()
         logger.info("Kafka producer started — bootstrap: %s", KAFKA_BOOTSTRAP_SERVERS)
@@ -122,10 +123,15 @@ async def publish_records(
     dlq = 0
 
     for reading in records:
-        # Key = province_id (string bytes) → partition routing
-        key   = str(reading.province_id).encode("utf-8")
-        # Value = JSON bytes
-        value = reading.model_dump_json().encode("utf-8")
+        # Handle both EnvironmentReading (Pydantic) and dict types
+        if hasattr(reading, 'province_id'):
+            # EnvironmentReading (Pydantic object) → dict object (serializer sẽ encode)
+            key   = str(reading.province_id).encode("utf-8")
+            value = reading.model_dump()
+        else:
+            # Plain dict (from collector) → dict object (serializer sẽ encode)
+            key   = str(reading["province_id"]).encode("utf-8")
+            value = reading
 
         try:
             # send_and_wait: đợi acknowledgment từ Kafka trước khi tiếp tục
@@ -135,13 +141,17 @@ async def publish_records(
 
         except (KafkaError, TypeError, ValueError) as exc:
             # Kafka gửi thất bại → không drop record → route vào DLQ
+            province_id = reading["province_id"] if isinstance(reading, dict) else reading.province_id
             logger.warning(
                 "Kafka publish failed for province_id=%d: %s — routing to DLQ",
-                reading.province_id, exc,
+                province_id, exc,
             )
 
+            # Handle both dict and Pydantic object
+            record_data = reading if isinstance(reading, dict) else reading.model_dump(mode="json")
+
             dlq_payload = {
-                "record":    reading.model_dump(mode="json"),
+                "record":    record_data,
                 "error":     str(exc),
                 "pushed_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -155,8 +165,8 @@ async def publish_records(
                 # Redis DLQ cũng fail → log nhưng KHÔNG retry
                 # (tránh infinite loop khi Redis down)
                 logger.warning(
-                    "Redis DLQ push failed for province_id=%d: %s",
-                    reading.province_id, redis_exc,
+                    "Redis DLQ push failed for province_id=%s: %s",
+                    province_id, redis_exc,
                 )
 
             dlq += 1

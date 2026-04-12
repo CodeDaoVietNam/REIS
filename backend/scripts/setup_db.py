@@ -59,12 +59,10 @@ async def run_schema(conn: asyncpg.Connection, drop: bool) -> None:
         await conn.execute("DROP EXTENSION IF EXISTS timescaledb CASCADE;")
 
     # Execute in a transaction
-    tx, cursor = conn.transaction(), conn.cursor()
-
-    async with tx:
+    async with conn.transaction():
         # Enable timescaledb (ignore errors if already enabled)
         try:
-            await cursor.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
+            await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
         except asyncpg.DuplicateObjectError:
             pass
 
