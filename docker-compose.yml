@@ -55,7 +55,8 @@ services:
       retries: 10
 
   kafka-ui:
-    image: provectus/kafka-ui:latest
+    # image: provectus/kafka-ui:latest
+    image: provectuslabs/kafka-ui:latest
     container_name: reis-kafka-ui
     depends_on:
       kafka:

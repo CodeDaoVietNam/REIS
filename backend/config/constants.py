@@ -1,4 +1,4 @@
-"""
+ """
 constants.py — Hằng số dùng chung cho toàn bộ REIS.
 
 Đặt ở đây thay vì hardcode để:
