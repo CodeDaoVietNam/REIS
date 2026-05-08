@@ -123,3 +123,6 @@ temp/
 *.tmp
 *.bak
 *.backup
+
+# frontend 
+frontend/node_modules/ 
