@@ -102,16 +102,9 @@ export default function NationalMap() {
              ))}
           </div>
           
-          <div className="flex gap-2">
-            <div className="bg-surface-container-low/80 backdrop-blur-md rounded-2xl p-1 border border-outline-variant/30 flex shadow-lg">
-              <button onClick={handleZoomIn} className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant" title="Phóng to"><Plus className="w-5 h-5" /></button>
-              <button onClick={handleZoomOut} className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant" title="Thu nhỏ"><Minus className="w-5 h-5" /></button>
-              <button onClick={handleReset} className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant" title="Đặt lại"><Maximize className="w-5 h-5" /></button>
-            </div>
-            <div className="bg-surface-container-low/80 backdrop-blur-md rounded-2xl p-1 border border-outline-variant/30 flex shadow-lg">
-              <button className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant"><MapPin className="w-5 h-5" /></button>
-              <button className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant"><Layers className="w-5 h-5" /></button>
-            </div>
+          <div className="bg-surface-container-low/80 backdrop-blur-md rounded-2xl p-1 border border-outline-variant/30 flex shadow-lg">
+            <button className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant"><MapPin className="w-5 h-5" /></button>
+            <button className="p-2 hover:bg-surface-container-highest rounded-xl text-on-surface-variant"><Layers className="w-5 h-5" /></button>
           </div>
         </div>
 
