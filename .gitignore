@@ -53,6 +53,7 @@ backend/models/artifacts/*.onnx
 backend/models/artifacts/*.joblib
 mlruns/
 mlartifacts/
+TASK_ASSIGNMENT.md
 *.pth
 *.ckpt
 *.h5
@@ -109,6 +110,7 @@ zookeeper-data/
 # ── Confidential project docs ───────────────────────────────────────
 docs/REIS_Stage1_2_Docs.docx   # Remove from git if sensitive
 docs/REIS_Project_Plan.docx
+docs/*
 
 # ── Test ───────────────────────────────────────────────────────────
 .pytest_cache/

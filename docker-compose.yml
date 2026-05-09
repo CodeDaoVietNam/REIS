@@ -55,7 +55,7 @@ services:
       retries: 10
 
   kafka-ui:
-    image: provectus/kafka-ui:latest
+    image: provectuslabs/kafka-ui:latest
     container_name: reis-kafka-ui
     depends_on:
       kafka:
@@ -108,6 +108,24 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # ── pgAdmin ─────────────────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    container_name: reis-pgadmin
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@reis.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - reis-net
 
   # ── Airflow ─────────────────────────────────────────────────────────
   airflow-webserver:
@@ -228,6 +246,7 @@ volumes:
   pgdata:
     driver: local
   redis-data:
+  pgadmin-data:
   airflow-logs:
   mlflow-artifacts:
   minio-data:
