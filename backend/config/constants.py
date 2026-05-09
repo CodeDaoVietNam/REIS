@@ -17,6 +17,72 @@ KAFKA_TOPICS = {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ML / FORECASTING CONSTANTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+FORECAST_HORIZON = 12
+HISTORY_WINDOW = 12
+TARGET_COLUMN = "aqi"
+
+# Feature set chọn từ notebook tuning vòng 2.
+FEATURE_COLUMNS = [
+    "pm2_5",
+    "pm10",
+    "aqi",
+    "no2",
+    "ozone",
+    "temperature",
+    "humidity",
+    "wind_speed",
+    "pm2_5_lag_1h",
+    "pm2_5_lag_3h",
+    "pm2_5_lag_6h",
+    "aqi_lag_1h",
+    "aqi_lag_3h",
+    "aqi_lag_6h",
+    "aqi_lag_24h",
+    "pm10_lag_1h",
+    "pm10_lag_3h",
+    "aqi_rolling_mean_3h",
+    "aqi_rolling_mean_6h",
+    "aqi_rolling_std_6h",
+    "aqi_rolling_max_3h",
+    "pm2_5_rolling_mean_6h",
+    "pm2_5_rolling_std_6h",
+    "delta_aqi_1h",
+    "delta_pm2_5_1h",
+    "aqi_rolling_min_3h",
+    "aqi_rolling_min_6h",
+    "pm10_rolling_std_6h",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+]
+
+ANOMALY_FEATURES = [
+    "pm2_5",
+    "pm10",
+    "aqi",
+    "no2",
+    "ozone",
+    "temperature",
+    "wind_speed",
+    "aqi_lag_3h",
+    "aqi_lag_6h",
+    "aqi_rolling_std_6h",
+    "aqi_rolling_max_3h",
+    "pm2_5_rolling_std_6h",
+    "delta_aqi_1h",
+    "delta_pm2_5_1h",
+]
+
+STRICT_ALERT_SCORE = 0.55
+STRICT_ALERT_AQI = 150
+STRICT_ALERT_PM25 = 100
+STRICT_ALERT_DELTA_PM25 = 20
+
+# ══════════════════════════════════════════════════════════════════════════════
 # OPEN-METEO API ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 

@@ -4,8 +4,8 @@ config/ — REIS configuration package.
 Exports settings (from .settings) and constants (from .constants).
 Import anywhere with: from config import settings, PROVINCES, KAFKA_TOPICS, etc.
 """
-from config.settings import settings
-from config.constants import (
+from .settings import settings
+from .constants import (
     PROVINCES,
     KAFKA_TOPICS,
     API_BASE_URL,
