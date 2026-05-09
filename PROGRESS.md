@@ -1,6 +1,6 @@
 # REIS — Project Progress
 
-> **Last updated:** 2026-04-12
+> **Last updated:** 2026-05-10
 > **Session context:** Compacts được lưu tại `~/.claude/projects/*/sessions/`
 
 ---
@@ -9,12 +9,12 @@
 
 ```
 Stage 1: Data Pipeline        ████████████████░░  ~85%  ✅ Integration Testing
-Stage 2A: ML Models           ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
-Stage 2B: Insights (LLM)      ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
+Stage 2A: ML Models           ███████████████░░░  ~80%  ✅ Core models implemented
+Stage 2B: Insights (LLM)      ██████████████░░░░  ~75%  ✅ Prompt + cache + client
 Stage 2C: API & WebSocket     ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2D: Frontend             ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2E: Airflow MLOps       ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
-Stage 2F: Notebooks (EDA)     ████░░░░░░░░░░░░░░░  15%  ⏳ In Progress
+Stage 2F: Notebooks (EDA)     █████████████░░░░░  ~65%  ⏳ Model notebooks completed
 Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 ```
 
@@ -91,41 +91,80 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 
 ---
 
-## ⏳ STAGE 2A — ML Models (CHƯA LÀM)
+## ✅ STAGE 2A — ML Models (CORE ĐÃ XONG)
 
-### Cần implement
+### Files đã implement
 
 | File | Mô tả | Priority |
 |------|--------|----------|
-| `backend/models/isolation_forest.py` | sklearn IsolationForest, score inversion 0-1 | 🔴 Cao |
-| `backend/models/lstm_model.py` | Keras LSTM architecture + train/predict | 🔴 Cao |
-| `backend/models/prophet_model.py` | Prophet wrapper, timezone-naive handling | 🟡 Trung |
-| `backend/models/predict.py` | Unified interface: `predict_forecast()` + `predict_anomaly()` | 🔴 Cao |
-| `backend/models/artifacts/` | Thư mục chứa trained models (.gitkeep) | 🟡 Trung |
+| `backend/models/isolation_forest.py` | Isolation Forest anomaly scoring, score [0,1], strict alert rules | ✅ |
+| `backend/models/lstm_model.py` | Tuned LSTM forecast model, Huber + sample weighting, scaler save/load | ✅ |
+| `backend/models/prophet_model.py` | Prophet fallback model, timezone-naive handling, JSON export | ✅ |
+| `backend/models/predict.py` | Unified async inference: anomaly + forecast, LSTM fallback Prophet | ✅ |
+| `backend/scripts/train_models.py` | Train/export script from TimescaleDB | ✅ |
+| `backend/models/artifacts/` | Exported artifacts for Isolation Forest, LSTM, Prophet | ✅ |
 
-### Test cần viết
+### Notebooks and tuning status
 
-- `tests/test_isolation_forest.py`
+- `backend/notebooks/06_model_comparison.ipynb` đã hoàn thành baseline comparison.
+- `backend/notebooks/06_model_comparison_copy.ipynb` đã hoàn thành tuning vòng 2.
+- Champion anomaly direction:
+  - Isolation Forest với feature động mở rộng
+  - ưu tiên ranking / top suspicious events
+  - threshold binary thực dụng: `0.55`
+- Champion forecast direction:
+  - `lookback=12h`
+  - stacked LSTM `128 -> 64`
+  - `dropout=0.2`
+  - `Adam(1e-3)`
+  - `Huber loss`
+  - sample weighting cho spike
+
+### Tests đã có
+
 - `tests/test_lstm_model.py`
 - `tests/test_prophet_model.py`
 - `tests/test_predict.py`
 
+### Trạng thái hiện tại
+
+```
+✅ train/export model từ DB bằng script
+✅ artifact đã sinh cho Isolation Forest / LSTM / Prophet
+✅ predict.py đã test pass với fallback logic
+⏳ test riêng cho isolation_forest.py chưa bổ sung
+⏳ API layer chưa gọi inference thật
+```
+
 ---
 
-## ⏳ STAGE 2B — Insights Layer (LLM) (CHƯA LÀM)
+## ✅ STAGE 2B — Insights Layer (LLM) (CORE ĐÃ XONG)
 
-### Cần implement
+### Files đã implement
 
 | File | Mô tả | Priority |
 |------|--------|----------|
-| `backend/insights/prompt_builder.py` | Assemble context: province + timestamp + current + anomaly + forecast | 🔴 Cao |
-| `backend/insights/llm_client.py` | Gemini/OpenAI wrapper, retry logic, timeout 10s | 🔴 Cao |
-| `backend/insights/insight_cache.py` | Redis TTL cache với AQI bucketing | 🔴 Cao |
+| `backend/insights/prompt_builder.py` | Build prompt tiếng Việt + template fallback dưới 150 từ | ✅ |
+| `backend/insights/llm_client.py` | Gemini primary, OpenAI fallback, retry + timeout + template fallback | ✅ |
+| `backend/insights/insight_cache.py` | Redis cache theo `province_id + aqi_bucket`, TTL 1 giờ | ✅ |
+| `backend/scripts/test_insight_generation.py` | Smoke test script cho Gemini/template/cache/DB flow | ✅ |
 
-### Test cần viết
+### Tests đã có
 
 - `tests/test_prompt_builder.py`
-- `tests/test_llm_client.py` (mock API calls)
+- `tests/test_llm_client.py`
+- `tests/test_insight_cache.py`
+
+### Runtime status
+
+```
+✅ Block 3 unit tests pass trong env `reis`
+✅ Gemini model config đã chuyển sang `gemini-2.5-flash`
+✅ Smoke test sinh insight thật qua Gemini thành công
+✅ Fallback template hoạt động khi provider lỗi hoặc thiếu API key
+⏳ API route `/api/insights/{id}` chưa implement
+⏳ Redis cache mới test ở unit level, chưa gắn vào API layer
+```
 
 ---
 
@@ -191,6 +230,10 @@ frontend/src/
 | `01_api_exploration.ipynb` | ✅ Done | Explore Open-Meteo API structure |
 | `02_data_quality.ipynb` | 🔲 Pending | Missing values, duplicates, validation errors |
 | `03_backfill_historical_data.ipynb` | ✅ Done | Cào 50 ngày data lịch sử |
+| `04_eda_air_quality.ipynb` | 🔲 Pending | AQI / PM distribution, correlation, seasonality |
+| `05_feature_engineering.ipynb` | 🔲 Pending | Feature experiments and final feature shortlist |
+| `06_model_comparison.ipynb` | ✅ Done | Baseline model comparison |
+| `06_model_comparison_copy.ipynb` | ✅ Done | Tuning vòng 2 cho LSTM + anomaly |
 
 ---
 

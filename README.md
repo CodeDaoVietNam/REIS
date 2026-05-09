@@ -73,8 +73,7 @@
 ```bash
 git clone https://github.com/your-username/reis.git
 cd reis
-cp .env.example .env
-# Chỉnh sửa .env: thêm GEMINI_API_KEY hoặc OPENAI_API_KEY
+# Chỉnh sửa .env: thêm GEMINI_API_KEY nếu muốn test insight thật
 ```
 
 ### 2. Start Infrastructure
@@ -97,32 +96,55 @@ python scripts/setup_db.py  # Tạo tables và hypertables
 
 ```bash
 # Terminal 1: Start Kafka consumer
-python processing/consumer.py
+python backend/processing/consumer.py
 
 # Terminal 2: Start data collector (poll mỗi 15 phút)
-python ingestion/scheduler.py
-
-# Terminal 3: Start API server
-uvicorn api.main:app --reload --port 8000
+python backend/ingestion/scheduler.py
 ```
 
-### 5. Start Frontend
+### 5. Backfill + Train Models
+
+```bash
+# Backfill dữ liệu lịch sử trước bằng notebook
+# backend/notebooks/03_backfill_historical_data.ipynb
+
+# Train và export toàn bộ model từ DB
+cd ..
+python backend/scripts/train_models.py --model all
+```
+
+### 6. Test Insight Generation
+
+```bash
+# Smoke test LLM insight với payload mẫu
+python backend/scripts/test_insight_generation.py
+
+# Test qua Redis cache
+python backend/scripts/test_insight_generation.py --use-cache
+
+# Test với dữ liệu thật từ DB + model inference
+python backend/scripts/test_insight_generation.py --use-db
+```
+
+### 7. Start Frontend / API
+
+> Hiện tại frontend và FastAPI route layer vẫn đang được triển khai dần.
+> Core inference và insight engine đã sẵn sàng, nhưng `api.main` và dashboard chưa hoàn tất end-to-end.
 
 ```bash
 cd frontend
 npm install
 npm run dev
-# Mở http://localhost:3000
 ```
 
-### 6. One-click Demo (tất cả trong 1 lệnh)
+### 8. One-click Infra Demo
 
 ```bash
 docker-compose --profile full up -d
-# Dashboard tại http://localhost:3000
-# API docs tại http://localhost:8000/docs
 # Airflow UI tại http://localhost:8080
 # MLflow UI tại http://localhost:5000
+# pgAdmin tại http://localhost:5050
+# Kafka UI tại http://localhost:8090
 ```
 
 ---
@@ -130,9 +152,11 @@ docker-compose --profile full up -d
 ## 🔧 Environment Variables
 
 ```env
-# LLM (bắt buộc 1 trong 2)
+# LLM
 GEMINI_API_KEY=your_key_here
-OPENAI_API_KEY=your_key_here       # Alternative
+GEMINI_MODEL=gemini-2.5-flash
+OPENAI_API_KEY=your_key_here       # Optional fallback
+OPENAI_MODEL=gpt-4o-mini
 
 # Database
 DATABASE_URL=postgresql://reis:reis@localhost:5432/reis_db
@@ -154,9 +178,7 @@ MLFLOW_TRACKING_URI=http://localhost:5000
 # App
 ENV=development                    # development | production
 LOG_LEVEL=INFO
-INSIGHT_CACHE_TTL=3600             # seconds (1 hour)
-ANOMALY_THRESHOLD=0.70             # Isolation Forest score
-CRITICAL_THRESHOLD=0.85            # Trigger alert
+INSIGHT_CACHE_TTL_SECONDS=3600     # seconds (1 hour)
 ```
 
 ---
@@ -182,21 +204,23 @@ reis/
 │   │   ├── prophet_model.py      # Prophet wrapper
 │   │   ├── isolation_forest.py  # Anomaly detector
 │   │   └── predict.py            # Unified inference interface
+│   │   └── artifacts/            # Exported model artifacts
 │   ├── insights/
-│   │   ├── prompt_builder.py     # Context assembly
+│   │   ├── prompt_builder.py     # Prompt + template fallback
 │   │   ├── llm_client.py         # Gemini/OpenAI wrapper
 │   │   └── insight_cache.py      # Redis TTL cache
-│   ├── api/
-│   │   ├── main.py               # FastAPI app
-│   │   ├── routes/               # REST endpoints
-│   │   ├── websocket.py          # WS broadcaster
-│   │   └── alert_manager.py      # Telegram + Email
+│   ├── api/                      # API layer planned
+│   │   ├── routes/               # REST endpoints planned
+│   │   ├── websocket.py          # WS broadcaster planned
+│   │   └── alert_manager.py      # Telegram + Email planned
 │   ├── airflow/
 │   │   └── dags/weekly_retrain.py
 │   ├── tests/
 │   ├── notebooks/                # EDA & model development
 │   └── scripts/
-│       └── setup_db.py
+│       ├── setup_db.py
+│       ├── train_models.py
+│       └── test_insight_generation.py
 │
 ├── frontend/
 │   ├── src/
@@ -213,6 +237,8 @@ reis/
 ---
 
 ## 🗺️ API Reference
+
+> Planned interface. Một phần endpoint vẫn chưa được implement trong repo hiện tại.
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
@@ -231,36 +257,39 @@ reis/
 ## 🤖 AI Components
 
 ### Forecasting (LSTM + Prophet)
-- **Input:** 48-hour rolling window, multivariate (AQI, PM2.5, temperature, wind, humidity)
+- **Input:** 12-hour lookback window, multivariate engineered features
 - **Output:** 12-step ahead forecast với confidence intervals
-- **Retrain:** Tự động mỗi Chủ Nhật 2:00 AM qua Airflow
+- **Champion config:** stacked LSTM `128 -> 64`, `dropout=0.2`, `Adam(1e-3)`, `Huber loss`, sample weighting cho spike
+- **Fallback:** Prophet nếu LSTM unavailable
 
 ### Anomaly Detection (Isolation Forest)
-- **Input:** 7-feature vector `[pm2_5, pm10, aqi, no2, o3, temperature, wind_speed]`
-- **Scores:** `> 0.70` → ANOMALY, `> 0.85` → CRITICAL + Alert
+- **Input:** engineered feature set gồm AQI/PM + lag + rolling + delta
+- **Direction:** ưu tiên ranking / top suspicious events
+- **Threshold dùng trong code hiện tại:** `0.55` cho strict alert gating
 - **Latency:** < 100ms per inference
 
 ### Insight Engine (LLM)
-- **Provider:** Google Gemini 1.5 Flash (mặc định) hoặc GPT-4o-mini
+- **Provider:** Google Gemini 2.5 Flash (mặc định) hoặc GPT-4o-mini fallback
 - **Cache:** Redis TTL 1 giờ — tiết kiệm ~80% API calls
 - **Output:** Đánh giá + Nguyên nhân + Dự báo + Khuyến nghị (< 150 từ)
+- **Fallback:** template text nếu provider lỗi / timeout / thiếu key
 
 ---
 
 ## 🧪 Testing
 
 ```bash
-# Chạy toàn bộ test suite
-cd backend
-pytest tests/ -v
+# Chạy test core ML + insight
+python -m pytest backend/tests/test_lstm_model.py -q
+python -m pytest backend/tests/test_prophet_model.py -q
+python -m pytest backend/tests/test_predict.py -q
+python -m pytest backend/tests/test_prompt_builder.py backend/tests/test_llm_client.py backend/tests/test_insight_cache.py -q
 
-# Test riêng từng module
-pytest tests/test_validator.py -v
-pytest tests/test_isolation_forest.py -v
-pytest tests/test_forecast.py -v
+# Chạy toàn bộ test backend
+python -m pytest backend/tests/ -v
 
 # Coverage report
-pytest tests/ --cov=. --cov-report=html
+python -m pytest backend/tests/ --cov=backend --cov-report=html
 ```
 
 ---
@@ -324,8 +353,11 @@ MLflow UI: `http://localhost:5000`
 ### Phase 1 (Current) — Việt Nam
 - [x] 5-layer streaming architecture
 - [x] Dual-AI inference (Predictive + Generative)
-- [x] MLOps auto-retraining
-- [x] Real-time dashboard
+- [x] Train/export script cho model artifacts
+- [x] Insight engine với Gemini + Redis cache
+- [ ] FastAPI route layer hoàn chỉnh
+- [ ] Real-time dashboard hoàn chỉnh
+- [ ] Airflow retrain pipeline hoàn chỉnh
 
 ### Phase 2 — Enhancements
 - [ ] Graph Neural Network (Spatio-temporal forecasting)

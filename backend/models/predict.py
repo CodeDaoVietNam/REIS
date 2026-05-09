@@ -180,7 +180,7 @@ async def predict_forecast(
             history_df = select_history_window(feature_df, province_id, history_hours=HISTORY_WINDOW)
             if len(history_df) >= HISTORY_WINDOW:
                 history = history_df[FEATURE_COLUMNS].to_numpy(dtype=np.float32)
-                preds = lstm_model.predict(history)
+                preds = np.asarray(lstm_model.predict(history), dtype=np.float32)
                 return {
                     "values": np.round(preds, 4).tolist(),
                     "lower": np.round(np.clip(preds - 5, 0, 500), 4).tolist(),

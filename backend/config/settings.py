@@ -66,9 +66,14 @@ class Settings(BaseSettings):
     COLLECTION_INTERVAL_MINUTES: int = 15   # Chạy mỗi 15 phút
 
     # ── LLM (Generative AI) ────────────────────────────────────────────────
-    LLM_API_KEY:    str = ""
+    LLM_API_KEY:    str = ""   # Backward-compatible Gemini key fallback
     LLM_MODEL:      str = "gemini-2.0-flash"
     LLM_TIMEOUT:    int = 10   # seconds
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL:   str = "gemini-2.5-flash"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL:   str = "gpt-4o-mini"
+    INSIGHT_CACHE_TTL_SECONDS: int = 3600
 
     # ── Alert ───────────────────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""

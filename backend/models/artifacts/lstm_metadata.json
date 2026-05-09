@@ -1,0 +1,15 @@
+{
+  "lookback_hours": 12,
+  "forecast_horizon": 12,
+  "units_1": 128,
+  "units_2": 64,
+  "dropout": 0.2,
+  "learning_rate": 0.001,
+  "batch_size": 32,
+  "epochs": 50,
+  "patience": 6,
+  "loss_name": "huber",
+  "use_sample_weight": true,
+  "aqi_spike_threshold": 150.0,
+  "delta_pm25_spike_threshold": 20.0
+}
