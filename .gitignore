@@ -66,6 +66,8 @@ airflow/logs/
 # ── IDE ────────────────────────────────────────────────────────────
 .idea/
 .vscode/
+SKILLS.md
+TASKS.md
 *.swp
 *.swo
 *~
