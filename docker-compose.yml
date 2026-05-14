@@ -195,8 +195,8 @@ services:
   # ── FastAPI ─────────────────────────────────────────────────────────
   fastapi:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: reis-fastapi
     ports:
       - "8000:8000"
@@ -204,6 +204,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://reis:reis_secret@timescaledb:5432/reis_db
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - REDIS_URL=redis://redis:6379
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173
       - MAPBOX_TOKEN=${MAPBOX_TOKEN}
     depends_on:
       timescaledb:
@@ -213,10 +214,10 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
     networks:
       - reis-net
-    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
 
   # ── React Frontend ──────────────────────────────────────────────────
   frontend:
@@ -227,14 +228,14 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_WS_URL=ws://localhost:8000/ws
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000/ws/live
     volumes:
       - ./frontend:/app
       - /app/node_modules
     networks:
       - reis-net
-    command: npm start
+    command: npm run dev -- --host 0.0.0.0 --port 3000
 
 networks:
   reis-net:

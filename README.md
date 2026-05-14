@@ -76,44 +76,70 @@ cd reis
 # Chỉnh sửa .env: thêm GEMINI_API_KEY nếu muốn test insight thật
 ```
 
-### 2. Start Infrastructure
+### 2. Start Minimal Infrastructure
 
 ```bash
-docker-compose up -d
-# Đợi ~60 giây cho Kafka và TimescaleDB khởi động
-docker-compose ps  # Kiểm tra tất cả services healthy
+docker compose up -d zookeeper kafka redis timescaledb kafka-ui
+docker compose ps
 ```
+
+Nếu máy dùng Docker Compose v1, thay `docker compose` bằng `docker-compose`.
 
 ### 3. Setup Database
 
 ```bash
 cd backend
-pip install -r requirements.txt
-python scripts/setup_db.py  # Tạo tables và hypertables
+/home/ductien/miniconda3/envs/reis/bin/python scripts/setup_db.py
 ```
 
-### 4. Start Data Pipeline
+### 4. Backfill Historical Data
 
 ```bash
-# Terminal 1: Start Kafka consumer
-python backend/processing/consumer.py
-
-# Terminal 2: Start data collector (poll mỗi 15 phút)
-python backend/ingestion/scheduler.py
+cd backend
+/home/ductien/miniconda3/envs/reis/bin/python scripts/backfill_historical_data.py --days 50
 ```
 
-### 5. Backfill + Train Models
+### 5. Start Data Pipeline
 
 ```bash
-# Backfill dữ liệu lịch sử trước bằng notebook
-# backend/notebooks/03_backfill_historical_data.ipynb
+# Terminal 1: Kafka consumer
+cd backend
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+DB_HOST=localhost DB_PORT=5432 DB_USER=reis DB_PASSWORD=reis_secret DB_NAME=reis_db \
+/home/ductien/miniconda3/envs/reis/bin/python processing/consumer.py
 
-# Train và export toàn bộ model từ DB
-cd ..
-python backend/scripts/train_models.py --model all
+# Terminal 2: one collection/publish cycle
+cd backend
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 REDIS_HOST=localhost REDIS_PORT=6379 \
+/home/ductien/miniconda3/envs/reis/bin/python - <<'PY'
+import asyncio
+from ingestion.scheduler import collect_and_publish
+from ingestion.producer import close as close_producer
+
+async def main():
+    await collect_and_publish()
+    await close_producer()
+
+asyncio.run(main())
+PY
 ```
 
-### 6. Test Insight Generation
+### 6. Start API + Frontend
+
+```bash
+# Terminal 3: FastAPI
+cd backend
+/home/ductien/miniconda3/envs/reis/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 4: Vite frontend
+cd frontend
+npm install
+VITE_API_URL=http://localhost:8000 VITE_WS_URL=ws://localhost:8000/ws/live npm run dev -- --host 0.0.0.0 --port 3000
+```
+
+Mở `http://localhost:3000` cho frontend và `http://localhost:8000/docs` cho Swagger.
+
+### 7. Test Insight Generation
 
 ```bash
 # Smoke test LLM insight với payload mẫu
@@ -124,17 +150,6 @@ python backend/scripts/test_insight_generation.py --use-cache
 
 # Test với dữ liệu thật từ DB + model inference
 python backend/scripts/test_insight_generation.py --use-db
-```
-
-### 7. Start Frontend / API
-
-> Hiện tại frontend và FastAPI route layer vẫn đang được triển khai dần.
-> Core inference và insight engine đã sẵn sàng, nhưng `api.main` và dashboard chưa hoàn tất end-to-end.
-
-```bash
-cd frontend
-npm install
-npm run dev
 ```
 
 ### 8. One-click Infra Demo
@@ -179,6 +194,9 @@ MLFLOW_TRACKING_URI=http://localhost:5000
 ENV=development                    # development | production
 LOG_LEVEL=INFO
 INSIGHT_CACHE_TTL_SECONDS=3600     # seconds (1 hour)
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
+VITE_API_URL=http://localhost:8000
+VITE_WS_URL=ws://localhost:8000/ws/live
 ```
 
 ---
@@ -209,9 +227,9 @@ reis/
 │   │   ├── prompt_builder.py     # Prompt + template fallback
 │   │   ├── llm_client.py         # Gemini/OpenAI wrapper
 │   │   └── insight_cache.py      # Redis TTL cache
-│   ├── api/                      # API layer planned
-│   │   ├── routes/               # REST endpoints planned
-│   │   ├── websocket.py          # WS broadcaster planned
+│   ├── api/                      # FastAPI REST + WebSocket
+│   │   ├── routes/               # health/provinces/summary/compare/insights/anomalies
+│   │   ├── websocket.py          # WS broadcaster `/ws/live`
 │   │   └── alert_manager.py      # Telegram + Email planned
 │   ├── airflow/
 │   │   └── dags/weekly_retrain.py
@@ -238,12 +256,13 @@ reis/
 
 ## 🗺️ API Reference
 
-> Planned interface. Một phần endpoint vẫn chưa được implement trong repo hiện tại.
-
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
+| `GET` | `/api/health` | Health check không phụ thuộc DB |
+| `GET` | `/api/summary` | KPI toàn quốc: AQI warnings, AI anomalies, latest_time |
 | `GET` | `/api/provinces` | Danh sách 63 tỉnh + AQI hiện tại |
-| `GET` | `/api/province/{id}` | Chi tiết 1 tỉnh: current + 48h history + forecast |
+| `GET` | `/api/province/{id}?hours=168` | Chi tiết 1 tỉnh: current + history + forecast + metadata source |
+| `GET` | `/api/compare?province_ids=1,2,4&days=7&metric=aqi` | So sánh nhiều tỉnh |
 | `GET` | `/api/forecast/{id}` | Dự báo 12h tới với confidence interval |
 | `GET` | `/api/anomalies` | Anomalies trong 24h qua |
 | `GET` | `/api/insights/{id}` | LLM insight (cached) |

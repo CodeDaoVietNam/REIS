@@ -74,6 +74,19 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL:   str = "gpt-4o-mini"
     INSIGHT_CACHE_TTL_SECONDS: int = 3600
+    INFERENCE_CACHE_TTL_SECONDS: int = 600
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,"
+        "http://localhost:3001,"
+        "http://localhost:5173,"
+        "http://127.0.0.1:3000,"
+        "http://127.0.0.1:3001,"
+        "http://127.0.0.1:5173"
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     # ── Alert ───────────────────────────────────────────────────────────────
     TELEGRAM_BOT_TOKEN: str = ""
