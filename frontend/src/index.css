@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+@theme {
+  --color-tertiary-fixed-dim: #ffb3af;
+  --color-on-primary: #003824;
+  --color-on-secondary-fixed-variant: #004395;
+  --color-on-secondary-container: #e6ecff;
+  --color-primary-fixed-dim: #4edea3;
+  --color-tertiary-fixed: #ffdad7;
+  --color-on-primary-fixed: #002113;
+  --color-surface-container-highest: #2f3632;
+  --color-on-primary-fixed-variant: #005236;
+  --color-on-tertiary-container: #711419;
+  --color-on-secondary-fixed: #001a42;
+  --color-inverse-on-surface: #2b322d;
+  --color-on-surface-variant: #bbcabf;
+  --color-error: #ffb4ab;
+  --color-outline-variant: #3c4a42;
+  --color-surface: #0e1511;
+  --color-on-tertiary-fixed: #410005;
+  --color-on-tertiary-fixed-variant: #842225;
+  --color-inverse-primary: #006c49;
+  --color-surface-container: #1a211d;
+  --color-surface-bright: #343b36;
+  --color-primary: var(--theme-primary);
+  --color-on-primary: var(--theme-on-primary);
+  --color-primary-container: var(--theme-primary-container);
+  --color-secondary: var(--theme-secondary);
+  --color-error: var(--theme-error);
+  --color-on-error: var(--theme-on-error);
+  --color-tertiary-container: var(--theme-tertiary-container);
+  
+  --color-surface: var(--theme-surface);
+  --color-surface-dim: var(--theme-surface-dim);
+  --color-surface-container-low: var(--theme-surface-container-low);
+  --color-surface-container: var(--theme-surface-container);
+  --color-surface-container-high: var(--theme-surface-container-high);
+  --color-surface-container-highest: var(--theme-surface-container-highest);
+  
+  --color-on-surface: var(--theme-on-surface);
+  --color-on-surface-variant: var(--theme-on-surface-variant);
+  --color-outline-variant: var(--theme-outline-variant);
+  
+  --color-background: var(--theme-background);
+  --color-success: var(--theme-success);
+  --color-warning: var(--theme-warning);
+
+  --font-hanken: "Hanken Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-on-surface font-hanken antialiased;
+  }
+}
+
+:root {
+  --theme-primary: #006c45;
+  --theme-on-primary: #ffffff;
+  --theme-primary-container: #8bf8bf;
+  --theme-secondary: #005ac1;
+  --theme-error: #ba1a1a;
+  --theme-on-error: #ffffff;
+  --theme-tertiary-container: #ffd8e4;
+  
+  --theme-surface: #fbfdf9;
+  --theme-surface-dim: #dbdeda;
+  --theme-surface-container-low: #f5f7f3;
+  --theme-surface-container: #eff1ed;
+  --theme-surface-container-high: #e9ebe7;
+  --theme-surface-container-highest: #e4e6e1;
+  
+  --theme-on-surface: #191c1a;
+  --theme-on-surface-variant: #404943;
+  --theme-outline-variant: #bfc9c1;
+  
+  --theme-background: #fbfdf9;
+  --theme-success: #006c45;
+  --theme-warning: #705d00;
+}
+
+:root.dark {
+  --theme-primary: #4edea3;
+  --theme-on-primary: #003823;
+  --theme-primary-container: #005234;
+  --theme-secondary: #adc6ff;
+  --theme-error: #ffb4ab;
+  --theme-on-error: #690005;
+  --theme-tertiary-container: #ffdad6;
+  
+  --theme-surface: #161d19;
+  --theme-surface-dim: #0e1511;
+  --theme-surface-container-low: #1a211d;
+  --theme-surface-container: #1e2521;
+  --theme-surface-container-high: #282f2b;
+  --theme-surface-container-highest: #333a36;
+  
+  --theme-on-surface: #e0e3de;
+  --theme-on-surface-variant: #bbcabf;
+  --theme-outline-variant: #3c4a42;
+  
+  --theme-background: #0e1511;
+  --theme-success: #4edea3;
+  --theme-warning: #e6c100;
+}
+
+.glass-card {
+  background: rgba(26, 33, 29, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(134, 148, 138, 0.2);
+  @apply rounded-3xl transition-all duration-300;
+}
+
+.glass-card:hover {
+  background: rgba(26, 33, 29, 0.6);
+  border-color: rgba(134, 148, 138, 0.4);
+}
+
+.aqi-gauge-gradient {
+  background: conic-gradient(from 270deg at 50% 100%, #4edea3 0deg, #adc6ff 45deg, #e6c100 90deg, #ffdad6 135deg, #ffb4ab 180deg, transparent 180deg);
+  mask-image: radial-gradient(circle at 50% 100%, transparent 60%, black 61%);
+  -webkit-mask-image: radial-gradient(circle at 50% 100%, transparent 60%, black 61%);
+}
