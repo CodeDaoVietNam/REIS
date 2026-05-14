@@ -46,6 +46,8 @@ export interface ForecastPayload {
   model_family: string;
 }
 
+export type MetricKey = 'aqi' | 'pm2_5' | 'pm10' | 'temperature' | 'humidity' | 'wind_speed';
+
 export interface AnomalyPayload {
   score: number;
   label: string;
@@ -66,6 +68,9 @@ export interface ProvinceDetail {
   history: EnvironmentalData[];
   anomaly: AnomalyPayload;
   forecast: ForecastPayload;
+  data_source: 'db' | 'fallback' | string;
+  inference_source: 'model' | 'cache' | 'default' | 'fallback' | string;
+  updated_at: string | null;
 }
 
 export interface ApiProvinceDetail {
@@ -74,6 +79,9 @@ export interface ApiProvinceDetail {
   history: Array<Partial<EnvironmentalData>>;
   anomaly: Partial<AnomalyPayload>;
   forecast: Partial<ForecastPayload>;
+  data_source?: string;
+  inference_source?: string;
+  updated_at?: string | null;
 }
 
 export interface InsightPayload {
@@ -90,6 +98,31 @@ export interface InsightPayload {
 export interface InsightResponse {
   province_id: number;
   insight: InsightPayload;
+}
+
+export interface SummaryPayload {
+  aqi_avg: number;
+  pm25_avg: number;
+  aqi_warning_count: number;
+  ai_anomaly_count: number;
+  warning_count: number;
+  anomaly_count: number;
+  province_count: number;
+  latest_time: string | null;
+}
+
+export interface CompareProvince {
+  province: ProvinceMeta;
+  current: EnvironmentalData | null;
+  history: EnvironmentalData[];
+  anomaly: AnomalyPayload;
+  radar: Record<string, number>;
+}
+
+export interface CompareResponse {
+  metric: MetricKey;
+  days: number;
+  provinces: CompareProvince[];
 }
 
 export interface AnomalyRecord {

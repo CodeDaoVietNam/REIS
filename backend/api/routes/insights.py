@@ -7,10 +7,11 @@ import asyncpg
 from fastapi import APIRouter, Request
 
 from backend.api.db import get_pool
+from backend.api.inference_cache import get_cached_inference
 from backend.api.routes.provinces import _reading_to_dict, fetch_current_reading, province_meta
 from backend.config.constants import STRICT_ALERT_AQI
 from backend.insights.insight_cache import get_or_create_insight
-from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST, run_inference
+from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,10 @@ async def get_insight(province_id: int, request: Request) -> dict[str, Any]:
         current = None
 
     try:
-        inference = await run_inference(province_id) if current else {
-            "anomaly": DEFAULT_ANOMALY,
-            "forecast": DEFAULT_FORECAST,
-        }
+        if current:
+            inference, _source = await get_cached_inference(province_id)
+        else:
+            inference, _source = {"anomaly": DEFAULT_ANOMALY, "forecast": DEFAULT_FORECAST}, "default"
     except Exception as exc:
         logger.warning("Insight inference fallback for province %s: %s", province_id, exc)
         inference = {"anomaly": DEFAULT_ANOMALY, "forecast": DEFAULT_FORECAST}

@@ -2,8 +2,11 @@ import type {
   AnomalyRecord,
   ApiProvinceDetail,
   ApiProvinceSummary,
+  CompareResponse,
   ForecastPayload,
   InsightResponse,
+  MetricKey,
+  SummaryPayload,
 } from '@/src/types';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -32,6 +35,10 @@ export function getProvinceDetail(provinceId: number): Promise<ApiProvinceDetail
   return requestJson<ApiProvinceDetail>(`/api/province/${provinceId}`);
 }
 
+export function getProvinceDetailWithHours(provinceId: number, hours: number): Promise<ApiProvinceDetail> {
+  return requestJson<ApiProvinceDetail>(`/api/province/${provinceId}?hours=${hours}`);
+}
+
 export function getForecast(provinceId: number): Promise<ForecastPayload> {
   return requestJson<ForecastPayload>(`/api/forecast/${provinceId}`);
 }
@@ -42,4 +49,13 @@ export function getInsight(provinceId: number): Promise<InsightResponse> {
 
 export function getAnomalies(): Promise<AnomalyRecord[]> {
   return requestJson<AnomalyRecord[]>('/api/anomalies');
+}
+
+export function getSummary(): Promise<SummaryPayload> {
+  return requestJson<SummaryPayload>('/api/summary');
+}
+
+export function getCompare(provinceIds: number[], days: number, metric: MetricKey): Promise<CompareResponse> {
+  const ids = provinceIds.join(',');
+  return requestJson<CompareResponse>(`/api/compare?province_ids=${ids}&days=${days}&metric=${metric}`);
 }

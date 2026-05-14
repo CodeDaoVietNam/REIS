@@ -1,27 +1,35 @@
 import { useEffect, useState } from 'react';
 import {
   getAnomalies,
+  getCompare,
   getInsight,
   getProvinceDetail,
+  getProvinceDetailWithHours,
   getProvinces,
+  getSummary,
 } from '@/src/services/apiClient';
 import {
   getMockAnomalies,
+  getMockCompare,
   getMockInsight,
   getMockProvinceDetail,
   getMockProvinceSummaries,
+  getMockSummary,
 } from '@/src/mocks/mockData';
 import type {
   AnomalyPayload,
   AnomalyRecord,
   ApiProvinceDetail,
   ApiProvinceSummary,
+  CompareResponse,
   EnvironmentalData,
   ForecastPayload,
   InsightPayload,
+  MetricKey,
   ProvinceDetail,
   ProvinceMeta,
   ProvinceSummary,
+  SummaryPayload,
 } from '@/src/types';
 
 type DataSource = 'api' | 'mock';
@@ -92,6 +100,23 @@ function normalizeForecast(payload: Partial<ForecastPayload> | undefined, fallba
   };
 }
 
+function normalizeSummaryPayload(payload: Partial<SummaryPayload>): SummaryPayload {
+  const fallback = getMockSummary();
+  const aqiWarningCount = toNumber(payload.aqi_warning_count ?? payload.warning_count, fallback.aqi_warning_count);
+  const aiAnomalyCount = toNumber(payload.ai_anomaly_count ?? payload.anomaly_count, fallback.ai_anomaly_count);
+
+  return {
+    aqi_avg: toNumber(payload.aqi_avg, fallback.aqi_avg),
+    pm25_avg: toNumber(payload.pm25_avg, fallback.pm25_avg),
+    aqi_warning_count: aqiWarningCount,
+    ai_anomaly_count: aiAnomalyCount,
+    warning_count: aqiWarningCount,
+    anomaly_count: aiAnomalyCount,
+    province_count: toNumber(payload.province_count, fallback.province_count),
+    latest_time: payload.latest_time ?? fallback.latest_time,
+  };
+}
+
 function normalizeSummary(summary: ApiProvinceSummary): ProvinceSummary {
   const fallback = getMockProvinceDetail(summary.province_id);
   return {
@@ -114,6 +139,9 @@ function normalizeDetail(payload: ApiProvinceDetail, provinceId: number): Provin
     history,
     anomaly: normalizeAnomaly(payload.anomaly, fallback.anomaly),
     forecast: normalizeForecast(payload.forecast, fallback.forecast),
+    data_source: payload.data_source ?? fallback.data_source,
+    inference_source: payload.inference_source ?? fallback.inference_source,
+    updated_at: payload.updated_at ?? current.time,
   };
 }
 
@@ -160,7 +188,7 @@ export function useProvinces(): QueryState<ProvinceSummary[]> {
   return state;
 }
 
-export function useProvinceDetail(provinceId: number): QueryState<ProvinceDetail> {
+export function useProvinceDetail(provinceId: number, hours = 48): QueryState<ProvinceDetail> {
   const fallback = getMockProvinceDetail(provinceId);
   const [state, setState] = useState<QueryState<ProvinceDetail>>({
     data: fallback,
@@ -174,7 +202,9 @@ export function useProvinceDetail(provinceId: number): QueryState<ProvinceDetail
 
     async function load() {
       try {
-        const detail = await getProvinceDetail(provinceId);
+        const detail = hours === 48
+          ? await getProvinceDetail(provinceId)
+          : await getProvinceDetailWithHours(provinceId, hours);
         if (!cancelled) {
           setState({
             data: normalizeDetail(detail, provinceId),
@@ -199,7 +229,7 @@ export function useProvinceDetail(provinceId: number): QueryState<ProvinceDetail
     return () => {
       cancelled = true;
     };
-  }, [provinceId]);
+  }, [provinceId, hours]);
 
   if (state.data.province.province_id !== provinceId) {
     return {
@@ -285,10 +315,10 @@ export function useAnomalies(): QueryState<AnomalyRecord[]> {
         const anomalies = await getAnomalies();
         if (!cancelled) {
           setState({
-            data: anomalies.length ? anomalies : getMockAnomalies(),
+            data: anomalies,
             loading: false,
             error: null,
-            source: anomalies.length ? 'api' : 'mock',
+            source: 'api',
           });
         }
       } catch (error) {
@@ -308,6 +338,99 @@ export function useAnomalies(): QueryState<AnomalyRecord[]> {
       cancelled = true;
     };
   }, []);
+
+  return state;
+}
+
+export function useSummary(): QueryState<SummaryPayload> {
+  const [state, setState] = useState<QueryState<SummaryPayload>>({
+    data: getMockSummary(),
+    loading: true,
+    error: null,
+    source: 'mock',
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const summary = await getSummary();
+        if (!cancelled) {
+          setState({ data: normalizeSummaryPayload(summary), loading: false, error: null, source: 'api' });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({
+            data: getMockSummary(),
+            loading: false,
+            error: error instanceof Error ? error.message : 'API unavailable',
+            source: 'mock',
+          });
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return state;
+}
+
+export function useCompare(
+  provinceIds: number[],
+  days: number,
+  metric: MetricKey,
+): QueryState<CompareResponse> {
+  const key = provinceIds.join(',');
+  const fallback = getMockCompare(provinceIds, days, metric);
+  const [state, setState] = useState<QueryState<CompareResponse> & { key: string; days: number; metric: MetricKey }>({
+    data: fallback,
+    loading: true,
+    error: null,
+    source: 'mock',
+    key,
+    days,
+    metric,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const ids = key.split(',').map(Number).filter(Number.isFinite);
+      try {
+        const compare = await getCompare(ids, days, metric);
+        if (!cancelled) {
+          setState({ data: compare, loading: false, error: null, source: 'api', key, days, metric });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({
+            data: getMockCompare(ids, days, metric),
+            loading: false,
+            error: error instanceof Error ? error.message : 'API unavailable',
+            source: 'mock',
+            key,
+            days,
+            metric,
+          });
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [key, days, metric]);
+
+  if (state.key !== key || state.days !== days || state.metric !== metric) {
+    return { data: fallback, loading: true, error: null, source: 'mock' };
+  }
 
   return state;
 }

@@ -2,15 +2,18 @@ import { type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, AlertTriangle, Heart, ShieldAlert, Thermometer, Wind } from 'lucide-react';
 import { useAnomalies } from '@/src/hooks/useAQIData';
-import { cn } from '@/src/lib/utils';
+import { cn, formatFixed, safeNumber } from '@/src/lib/utils';
 
 export default function HealthAlerts() {
   const anomalyQuery = useAnomalies();
   const primaryAlert = anomalyQuery.data[0];
-  const provinceName = primaryAlert?.province.name_vi ?? 'Hà Nội';
+  const provinceName = primaryAlert?.province.name_vi ?? 'Việt Nam';
   const reading = primaryAlert?.reading;
+  const isAiAnomaly = Boolean(reading?.is_anomaly) || safeNumber(reading?.anomaly_score) >= 0.7;
+  const isAqiWarning = safeNumber(reading?.aqi) >= 150;
+  const alertType = isAiAnomaly ? 'AI Anomaly Event' : isAqiWarning ? 'AQI Health Alert' : 'Monitoring Event';
   const headline = reading
-    ? `AQI ${Math.round(reading.aqi)} tại ${provinceName}, PM2.5 ${reading.pm2_5.toFixed(1)} µg/m³`
+    ? `AQI ${Math.round(safeNumber(reading.aqi))} tại ${provinceName}, PM2.5 ${formatFixed(reading.pm2_5, 1)} µg/m³`
     : 'Chưa có cảnh báo nghiêm trọng từ API trong 24 giờ gần nhất.';
 
   return (
@@ -42,6 +45,11 @@ export default function HealthAlerts() {
                 API anomalies chưa sẵn sàng, đang dùng danh sách fallback để UI không bị trống.
               </p>
             )}
+            {!anomalyQuery.error && (
+              <p className="mb-4 text-xs font-mono text-on-surface-variant">
+                Nguồn: {anomalyQuery.source === 'api' ? 'API thật /api/anomalies' : 'mock fallback khi API lỗi'}.
+              </p>
+            )}
             <div className="flex flex-wrap gap-4">
               <AlertAction icon={<Activity />} text={primaryAlert ? 'Ở TRONG NHÀ' : 'TIẾP TỤC THEO DÕI'} active={Boolean(primaryAlert)} />
               <AlertAction icon={<Wind />} text="LỌC KHÍ TỐI ƯU" />
@@ -55,7 +63,7 @@ export default function HealthAlerts() {
         <div className="md:col-span-12 glass-card p-6 border-l-4 border-l-error">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-xl font-bold text-error uppercase font-mono tracking-wider">
-              {primaryAlert ? `Cảnh báo: ${provinceName}` : 'Cảnh báo: Không có sự kiện mới'}
+              {primaryAlert ? `${alertType}: ${provinceName}` : 'AQI Health Alerts / AI Anomaly Events: Không có sự kiện mới'}
             </h3>
             <span className="text-xs font-mono text-on-surface-variant">
               {reading ? new Date(reading.time).toLocaleString('vi-VN') : '24 giờ gần nhất'}
@@ -63,16 +71,19 @@ export default function HealthAlerts() {
           </div>
           <p className="text-on-surface-variant">
             {reading
-              ? 'Hệ thống ghi nhận tín hiệu bất thường hoặc chỉ số AQI vượt ngưỡng. Người dùng nhạy cảm nên giảm tiếp xúc ngoài trời.'
-              : 'Không có anomaly từ backend. Dashboard vẫn giữ khuyến nghị phòng ngừa để phục vụ demo và kiểm tra giao diện.'}
+              ? `Hệ thống ghi nhận ${isAiAnomaly ? 'pattern bất thường theo model AI' : 'AQI vượt ngưỡng sức khỏe'}. Người dùng nhạy cảm nên giảm tiếp xúc ngoài trời.`
+              : 'API không trả về anomaly hoặc AQI warning trong 24 giờ gần nhất. Đây là trạng thái ổn định, không phải dữ liệu giả.'}
           </p>
         </div>
 
         <div className="md:col-span-8 glass-card p-8">
           <h3 className="text-2xl font-bold mb-8 flex items-center gap-2">
             <Activity className="w-6 h-6 text-primary" />
-            Dự báo Dị ứng & Phấn hoa
+            Demo placeholder: Dị ứng & Phấn hoa
           </h3>
+          <p className="mb-6 text-sm text-on-surface-variant">
+            Khối này là minh họa UI, chưa nối với nguồn pollen/allergy thật. Các cảnh báo thật đang nằm ở phần API events phía trên.
+          </p>
           <div className="space-y-8">
             <ProgressBar label="Phấn hoa Cỏ" value={85} color="bg-error" status="Rất cao" />
             <ProgressBar label="Bào tử Nấm mốc" value={65} color="bg-tertiary-container" status="Cao" />

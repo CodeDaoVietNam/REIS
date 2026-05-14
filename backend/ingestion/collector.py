@@ -205,7 +205,7 @@ async def collect_all_provinces(
                 "latitude": lats,
                 "longitude": lons,
                 "current": WEATHER_VARS,
-                "timezone": "Asia/Ho_Chi_Minh",
+                "timezone": "UTC",
             },
         )
 
@@ -217,7 +217,7 @@ async def collect_all_provinces(
                 "latitude": lats,
                 "longitude": lons,
                 "current": AQ_VARS,
-                "timezone": "Asia/Ho_Chi_Minh",
+                "timezone": "UTC",
             },
         )
 
@@ -241,6 +241,8 @@ async def collect_all_provinces(
         # Replace 'Z' (UTC) bằng +00:00 để fromisoformat hiểu
         time_str = raw_time.replace("Z", "+00:00") if raw_time.endswith("Z") else raw_time
         time_dt  = datetime.fromisoformat(time_str)
+        if time_dt.tzinfo is None:
+            time_dt = time_dt.replace(tzinfo=timezone.utc)
 
         # ── Build record ──────────────────────────────────────────────────
         record: dict[str, Any] = {
@@ -325,4 +327,3 @@ if __name__ == "__main__":
             f"PM2.5={r['pm2_5']:5.1f} "
             f"Temp={r['temperature']:4.1f}°C"
         )
-

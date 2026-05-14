@@ -58,6 +58,7 @@ DB_NAME     = settings.DB_NAME
 # Batch settings
 BATCH_SIZE        = 63    # 1 full cycle = 63 provinces
 BATCH_TIMEOUT_SEC = 10    # Flush sau 10s dù batch chưa đầy
+POLL_TIMEOUT_MS   = 1000  # Check timeout even when Kafka has no new messages
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SQL — INSERT (docs spec: ON CONFLICT DO NOTHING)
@@ -216,40 +217,52 @@ async def consume() -> None:
 
     pool  = await _get_pool()
     batch: list[tuple] = []
-    batch_start_time   = asyncio.get_event_loop().time()
+    batch_start_time: float | None = None
+    loop = asyncio.get_event_loop()
 
     try:
-        async for msg in consumer:
-            try:
-                # Decode bytes → string → dict
-                raw = msg.value
-                if isinstance(raw, bytes):
-                    raw = raw.decode("utf-8")
-                data = json.loads(raw) if isinstance(raw, str) else raw
-                if not isinstance(data, dict):
-                    raise ValueError(f"Expected dict, got {type(data)}")
+        while not shutdown_event.is_set():
+            records_by_partition = await consumer.getmany(
+                timeout_ms=POLL_TIMEOUT_MS,
+                max_records=BATCH_SIZE,
+            )
+            saw_unparseable = False
 
-            except (json.JSONDecodeError, ValueError) as exc:
-                # Unparseable message → skip, commit offset (không stall)
-                logger.warning(
-                    "Skipping unparseable message at offset %s: %s",
-                    msg.offset, exc,
-                )
-                await consumer.commit()
-                continue
+            for messages in records_by_partition.values():
+                for msg in messages:
+                    try:
+                        # Decode bytes → string → dict
+                        raw = msg.value
+                        if isinstance(raw, bytes):
+                            raw = raw.decode("utf-8")
+                        data = json.loads(raw) if isinstance(raw, str) else raw
+                        if not isinstance(data, dict):
+                            raise ValueError(f"Expected dict, got {type(data)}")
 
-            # Thêm vào batch
-            batch.append(_msg_to_tuple(data))
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        # Mark for commit after any valid records from this poll are flushed.
+                        logger.warning(
+                            "Skipping unparseable message at offset %s: %s",
+                            msg.offset, exc,
+                        )
+                        saw_unparseable = True
+                        continue
 
-            now         = asyncio.get_event_loop().time()
-            elapsed     = now - batch_start_time
-            is_full     = len(batch) >= BATCH_SIZE
-            is_timedout = elapsed >= BATCH_TIMEOUT_SEC
+                    if not batch:
+                        batch_start_time = loop.time()
+                    batch.append(_msg_to_tuple(data))
 
-            if is_full or is_timedout:
+            now = loop.time()
+            elapsed = now - batch_start_time if batch_start_time is not None else 0
+            is_full = len(batch) >= BATCH_SIZE
+            is_timedout = bool(batch) and elapsed >= BATCH_TIMEOUT_SEC
+
+            if batch and (is_full or is_timedout or saw_unparseable):
                 await _flush_batch(pool, consumer, batch)
                 batch.clear()
-                batch_start_time = now
+                batch_start_time = None
+            elif saw_unparseable:
+                await consumer.commit()
 
     finally:
         # ── Graceful shutdown: flush remaining ──────────────────────────
@@ -309,4 +322,7 @@ async def run_standalone() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(run_standalone())
+    try:
+        asyncio.run(run_standalone())
+    except KeyboardInterrupt:
+        logger.info("Consumer interrupted by KeyboardInterrupt")

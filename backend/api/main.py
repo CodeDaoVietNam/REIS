@@ -21,14 +21,17 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from backend.api import db, websocket
 from backend.api.routes import forecast, insights, provinces
+from backend.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 API_VERSION = "0.1.0"
 LOCAL_DEV_ORIGINS = [
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
     "http://127.0.0.1:5173",
 ]
 
@@ -52,7 +55,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=LOCAL_DEV_ORIGINS,
+    allow_origins=settings.cors_origins or LOCAL_DEV_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

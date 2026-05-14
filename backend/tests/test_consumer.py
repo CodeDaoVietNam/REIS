@@ -60,7 +60,7 @@ def test_msg_to_tuple_fields_correct(sample_message):
     """Tuple elements khớp đúng thứ tự INSERT_SQL $1..$16."""
     tup = _msg_to_tuple(sample_message)
 
-    assert tup[0] == "2024-01-15T08:00:00+00:00"   # $1 time
+    assert tup[0] == datetime(2024, 1, 15, 8, 0, tzinfo=timezone.utc)  # $1 time
     assert tup[1] == 48                                # $2 province_id
     assert tup[2] == 32.5                              # $3 temperature
     assert tup[3] == 75.0                              # $4 humidity
@@ -146,7 +146,7 @@ async def test_flush_commits_after_insert(sample_message):
     """executemany thành công → commit được gọi. executemany fail → commit KHÔNG được gọi."""
     from backend.processing.consumer import _flush_batch
 
-    pool = AsyncMock()
+    pool = MagicMock()
     conn = AsyncMock()
     conn.executemany = AsyncMock()
     pool.acquire.return_value.__aenter__.return_value = conn

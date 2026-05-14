@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Search, Bell, Settings, LayoutDashboard, BarChart3, Map as MapIcon, ShieldAlert, Sun, Moon, Home } from 'lucide-react';
+import { Search, Bell, Settings, LayoutDashboard, BarChart3, Map as MapIcon, ShieldAlert, Sun, Moon, Home, GitCompareArrows } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { useTheme } from '@/src/contexts/useTheme';
 
@@ -34,6 +34,12 @@ export function Navigation() {
               isActive ? "text-primary after:content-[''] after:absolute after:left-0 after:bottom-0 after:w-full after:h-[2px] after:bg-primary after:rounded-full" : "text-on-surface-variant hover:text-on-surface"
             )}>
               Analytics
+            </NavLink>
+            <NavLink to="/compare" className={({ isActive }) => cn(
+              "text-sm font-medium tracking-wide transition-all duration-300 relative py-1",
+              isActive ? "text-primary after:content-[''] after:absolute after:left-0 after:bottom-0 after:w-full after:h-[2px] after:bg-primary after:rounded-full" : "text-on-surface-variant hover:text-on-surface"
+            )}>
+              Compare
             </NavLink>
             <NavLink to="/map" className={({ isActive }) => cn(
               "text-sm font-medium tracking-wide transition-all duration-300 relative py-1",
@@ -103,6 +109,12 @@ export function Navigation() {
           isActive ? "text-primary bg-primary/10" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50"
         )}>
           <BarChart3 className="w-6 h-6" />
+        </NavLink>
+        <NavLink to="/compare" className={({ isActive }) => cn(
+          "flex flex-col items-center justify-center transition-all p-2 rounded-xl",
+          isActive ? "text-primary bg-primary/10" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50"
+        )}>
+          <GitCompareArrows className="w-6 h-6" />
         </NavLink>
         <NavLink to="/map" className={({ isActive }) => cn(
           "flex flex-col items-center justify-center transition-all p-2 rounded-xl",

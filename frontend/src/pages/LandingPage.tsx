@@ -1,11 +1,18 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, Wind, Droplets, Sun, Leaf, Shield, Zap, Globe, MousePointer2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useSummary } from '@/src/hooks/useAQIData';
+import { getAQILabel, safeNumber } from '@/src/lib/utils';
 
 export default function LandingPage() {
   const { scrollYProgress } = useScroll();
   const y1 = useTransform(scrollYProgress, [0, 1], [0, -200]);
   const y2 = useTransform(scrollYProgress, [0, 1], [0, -500]);
+  const summaryQuery = useSummary();
+  const liveAqi = Math.round(safeNumber(summaryQuery.data.aqi_avg));
+  const liveBadge = summaryQuery.source === 'api'
+    ? `CHỈ SỐ API TOÀN QUỐC: ${liveAqi} AQI (${getAQILabel(liveAqi).toUpperCase()})`
+    : `DEMO FALLBACK: ${liveAqi} AQI (${getAQILabel(liveAqi).toUpperCase()})`;
 
   const features = [
     {
@@ -74,7 +81,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-3 py-2 px-5 rounded-full bg-surface-container-low border border-outline-variant/30 text-primary text-xs font-bold mb-10 shadow-lg backdrop-blur-md cursor-default"
             >
               <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-              CHỈ SỐ THỰC THỜI: HANOI 42 AQI (TỐT)
+              {liveBadge}
             </motion.div>
 
             <h1 className="text-6xl md:text-[120px] font-black tracking-tighter leading-[0.9] mb-12">
@@ -98,9 +105,12 @@ export default function LandingPage() {
                   KHÁM PHÁ NGAY <ArrowRight className="w-6 h-6" />
                 </span>
               </Link>
-              <button className="group px-10 py-5 bg-surface-container-high text-on-surface rounded-2xl font-black text-lg hover:bg-surface-container-highest transition-all flex items-center gap-3 border border-outline-variant/20">
+              <a
+                href="http://localhost:8000/docs"
+                className="group px-10 py-5 bg-surface-container-high text-on-surface rounded-2xl font-black text-lg hover:bg-surface-container-highest transition-all flex items-center gap-3 border border-outline-variant/20"
+              >
                 TÀI LIỆU API <Zap className="w-6 h-6 group-hover:text-warning transition-colors" />
-              </button>
+              </a>
             </div>
           </motion.div>
         </div>
@@ -180,10 +190,10 @@ export default function LandingPage() {
         {/* Stats Strip */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-20">
            {[
-             { label: "Trạm đo", val: "2,400+" },
-             { label: "Người dùng", val: "1.2M" },
-             { label: "Độ chính xác", val: "99.2%" },
-             { label: "Vùng phủ", val: "63 Tỉnh" }
+             { label: "Tỉnh theo dõi", val: `${summaryQuery.data.province_count}` },
+             { label: "AQI warnings", val: `${summaryQuery.data.aqi_warning_count}` },
+             { label: "AI anomalies", val: `${summaryQuery.data.ai_anomaly_count}` },
+             { label: summaryQuery.source === 'api' ? "Nguồn dữ liệu" : "Nguồn demo", val: summaryQuery.source === 'api' ? "LIVE API" : "FALLBACK" }
            ].map((s, i) => (
              <div key={i} className="text-center p-8 bg-surface-container-low rounded-3xl border border-outline-variant/10 hover:border-primary/30 transition-all">
                 <div className="text-3xl font-black text-primary mb-2 tracking-tighter">{s.val}</div>

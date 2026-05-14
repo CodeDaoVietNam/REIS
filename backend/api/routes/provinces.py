@@ -5,15 +5,20 @@ from datetime import datetime, timezone
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.api.db import get_pool
+from backend.api.inference_cache import get_cached_inference
 from backend.config.constants import PROVINCES, PROVINCES_BY_ID
-from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST, run_inference
+from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["provinces"])
+
+ALLOWED_COMPARE_METRICS = {"aqi", "pm2_5", "pm10", "temperature", "humidity", "wind_speed"}
+WARNING_AQI_THRESHOLD = 150
+ANOMALY_SCORE_THRESHOLD = 0.7
 
 
 def province_meta(province_id: int) -> dict[str, Any]:
@@ -68,6 +73,19 @@ def _reading_to_dict(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
         "is_anomaly": data.get("is_anomaly"),
         "anomaly_score": data.get("anomaly_score"),
         "raw_json": data.get("raw_json") or {},
+    }
+
+
+def _radar_from_reading(reading: dict[str, Any] | None) -> dict[str, float]:
+    if reading is None:
+        return {"aqi": 0, "pm2_5": 0, "pm10": 0, "no2": 0, "ozone": 0, "uv_index": 0}
+    return {
+        "aqi": float(reading.get("aqi") or 0),
+        "pm2_5": float(reading.get("pm2_5") or 0),
+        "pm10": float(reading.get("pm10") or 0),
+        "no2": float(reading.get("no2") or 0),
+        "ozone": float(reading.get("ozone") or reading.get("o3") or 0),
+        "uv_index": float(reading.get("uv_index") or 0),
     }
 
 
@@ -131,7 +149,7 @@ async def fetch_history(
             is_anomaly, anomaly_score, raw_json
         FROM env_readings
         WHERE province_id = $1
-          AND time >= NOW() - ($2::text || ' hours')::interval
+          AND time >= NOW() - ($2 * INTERVAL '1 hour')
         ORDER BY time ASC
         """,
         province_id,
@@ -161,7 +179,11 @@ async def list_provinces(request: Request) -> list[dict[str, Any]]:
 
 
 @router.get("/api/province/{province_id}")
-async def get_province_detail(province_id: int, request: Request) -> dict[str, Any]:
+async def get_province_detail(
+    province_id: int,
+    request: Request,
+    hours: int = Query(default=48, ge=1, le=24 * 60),
+) -> dict[str, Any]:
     meta = province_meta(province_id)
     pool = get_pool(request)
 
@@ -169,16 +191,18 @@ async def get_province_detail(province_id: int, request: Request) -> dict[str, A
     history: list[dict[str, Any]] = []
     try:
         current = await fetch_current_reading(pool, province_id)
-        history = await fetch_history(pool, province_id, hours=48)
+        history = await fetch_history(pool, province_id, hours=hours)
     except Exception as exc:
         logger.warning("Failed to fetch province detail from DB: %s", exc)
 
     inference = {"anomaly": DEFAULT_ANOMALY, "forecast": DEFAULT_FORECAST}
+    inference_source = "default"
     if current is not None:
         try:
-            inference = await run_inference(province_id)
+            inference, inference_source = await get_cached_inference(province_id)
         except Exception as exc:
             logger.warning("Inference fallback for province %s: %s", province_id, exc)
+            inference_source = "fallback"
 
     return {
         "province": meta,
@@ -186,4 +210,110 @@ async def get_province_detail(province_id: int, request: Request) -> dict[str, A
         "history": history,
         "anomaly": inference.get("anomaly", DEFAULT_ANOMALY),
         "forecast": inference.get("forecast", DEFAULT_FORECAST),
+        "data_source": "db" if current is not None else "fallback",
+        "inference_source": inference_source,
+        "updated_at": (current or {}).get("time"),
     }
+
+
+@router.get("/api/summary")
+async def get_summary(request: Request) -> dict[str, Any]:
+    pool = get_pool(request)
+    try:
+        latest = await fetch_latest_readings(pool)
+    except Exception as exc:
+        logger.warning("Failed to build summary from DB: %s", exc)
+        latest = {}
+
+    readings = [reading for reading in latest.values() if reading is not None]
+    province_count = len(PROVINCES)
+    if not readings:
+        return {
+            "aqi_avg": 0,
+            "pm25_avg": 0,
+            "aqi_warning_count": 0,
+            "ai_anomaly_count": 0,
+            "warning_count": 0,
+            "anomaly_count": 0,
+            "province_count": province_count,
+            "latest_time": None,
+        }
+
+    aqi_values = [float(row["aqi"]) for row in readings if row.get("aqi") is not None]
+    pm25_values = [float(row["pm2_5"]) for row in readings if row.get("pm2_5") is not None]
+    warning_count = sum(1 for row in readings if float(row.get("aqi") or 0) >= WARNING_AQI_THRESHOLD)
+    anomaly_count = sum(
+        1
+        for row in readings
+        if row.get("is_anomaly") is True or float(row.get("anomaly_score") or 0) >= ANOMALY_SCORE_THRESHOLD
+    )
+    latest_time = max((row.get("time") for row in readings if row.get("time")), default=None)
+    aqi_warning_count = warning_count
+    ai_anomaly_count = anomaly_count
+
+    return {
+        "aqi_avg": round(sum(aqi_values) / len(aqi_values), 1) if aqi_values else 0,
+        "pm25_avg": round(sum(pm25_values) / len(pm25_values), 1) if pm25_values else 0,
+        "aqi_warning_count": aqi_warning_count,
+        "ai_anomaly_count": ai_anomaly_count,
+        "warning_count": aqi_warning_count,
+        "anomaly_count": ai_anomaly_count,
+        "province_count": province_count,
+        "latest_time": latest_time,
+    }
+
+
+@router.get("/api/compare")
+async def compare_provinces(
+    request: Request,
+    province_ids: str = Query(default="1,2,4"),
+    days: int = Query(default=7, ge=1, le=60),
+    metric: str = Query(default="aqi"),
+) -> dict[str, Any]:
+    if metric not in ALLOWED_COMPARE_METRICS:
+        raise HTTPException(status_code=400, detail=f"Unsupported metric: {metric}")
+
+    try:
+        ids = [int(item.strip()) for item in province_ids.split(",") if item.strip()]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="province_ids must be comma-separated integers") from exc
+
+    unique_ids = list(dict.fromkeys(ids))[:6]
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="At least one province id is required")
+
+    pool = get_pool(request)
+    response_items: list[dict[str, Any]] = []
+    for province_id in unique_ids:
+        meta = province_meta(province_id)
+        try:
+            current = await fetch_current_reading(pool, province_id)
+            history = await fetch_history(pool, province_id, hours=days * 24)
+        except Exception as exc:
+            logger.warning("Compare fallback for province %s: %s", province_id, exc)
+            current = None
+            history = []
+
+        inference = {"anomaly": DEFAULT_ANOMALY}
+        if current is not None:
+            try:
+                inference, _source = await get_cached_inference(province_id)
+            except Exception as exc:
+                logger.warning("Compare inference fallback for province %s: %s", province_id, exc)
+        anomaly = inference.get("anomaly", DEFAULT_ANOMALY)
+
+        response_items.append(
+            {
+                "province": meta,
+                "current": current,
+                "history": history,
+                "anomaly": {
+                    "score": float(anomaly.get("score") or 0),
+                    "label": anomaly.get("label") or "NORMAL",
+                    "strict_alert": bool(anomaly.get("strict_alert")),
+                },
+                "radar": _radar_from_reading(current),
+            }
+        )
+
+    return {"metric": metric, "days": days, "provinces": response_items}

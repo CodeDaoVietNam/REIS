@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Area,
   Bar,
+  BarChart,
   Cell,
-  ComposedChart,
-  Line,
   Pie,
   PieChart,
   PolarAngleAxis,
@@ -13,257 +11,275 @@ import {
   Radar,
   RadarChart,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
-  ZAxis,
 } from 'recharts';
-import { Activity, BarChart3, Box, Download, Search, TrendingUp, Zap } from 'lucide-react';
-import { PROVINCES } from '@/src/mocks/mockData';
-import { useProvinceDetail } from '@/src/hooks/useAQIData';
-import { cn } from '@/src/lib/utils';
+import { Activity, CalendarDays, MapPin, SlidersHorizontal, TrendingUp } from 'lucide-react';
+import { ForecastBandChart } from '@/src/components/ForecastBandChart';
+import { KpiCard } from '@/src/components/KpiCard';
+import { useProvinceDetail, useProvinces } from '@/src/hooks/useAQIData';
+import { cn, safeNumber } from '@/src/lib/utils';
+import type { EnvironmentalData, MetricKey } from '@/src/types';
+
+const ranges = [
+  { label: 'Last 24h', hours: 24 },
+  { label: 'Last 7 days', hours: 168 },
+  { label: 'Last 30 days', hours: 720 },
+];
+
+const metrics: Array<{ key: MetricKey; label: string }> = [
+  { key: 'aqi', label: 'AQI' },
+  { key: 'pm2_5', label: 'PM2.5' },
+  { key: 'temperature', label: 'Temperature' },
+];
+
+const metricLabels: Record<MetricKey, string> = {
+  aqi: 'AQI',
+  pm2_5: 'PM2.5',
+  pm10: 'PM10',
+  temperature: 'Temperature',
+  humidity: 'Humidity',
+  wind_speed: 'Wind Speed',
+};
 
 export default function Analytics() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProvinceId, setSelectedProvinceId] = useState<number>(1);
-  const detailQuery = useProvinceDetail(selectedProvinceId);
-  const currentProvince = PROVINCES.find((province) => province.id === selectedProvinceId) ?? PROVINCES[0];
-  const currentData = detailQuery.data.current;
+  const [selectedProvinceId, setSelectedProvinceId] = useState(1);
+  const [rangeHours, setRangeHours] = useState(168);
+  const [metric, setMetric] = useState<MetricKey>('aqi');
+  const provinceQuery = useProvinces();
+  const detailQuery = useProvinceDetail(selectedProvinceId, rangeHours);
+  const current = detailQuery.data.current;
+  const history = detailQuery.data.history;
+  const activeRange = ranges.find((range) => range.hours === rangeHours) ?? ranges[1];
+  const anomalyScore = safeNumber(detailQuery.data.anomaly.score, safeNumber(current.anomaly_score));
+  const isAiAnomaly = detailQuery.data.anomaly.strict_alert || detailQuery.data.anomaly.label !== 'NORMAL';
 
-  const filteredProvinces = PROVINCES.filter((province) =>
-    province.name.toLowerCase().includes(searchQuery.toLowerCase())
-    || province.en_name.toLowerCase().includes(searchQuery.toLowerCase()),
+  const topProvinces = useMemo(
+    () => provinceQuery.data
+      .filter((province) => province.current)
+      .map((province) => ({
+        name: province.name_vi.replace('Tinh ', '').replace('Thanh pho ', ''),
+        value: safeNumber(province.current?.[metric]),
+      }))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 10),
+    [provinceQuery.data, metric],
   );
 
-  const dynamicHistory = detailQuery.data.history.map((row, index) => {
-    const scale = Math.max(0.5, Math.min(1.8, currentData.aqi / 120));
-    const deterministicOffset = ((index % 5) - 2) * 2;
-    return {
-      ...row,
-      aqi: Math.round(Math.max(0, Math.min(300, row.aqi * scale + deterministicOffset))),
-      pm2_5: Math.round(Math.max(0, row.pm2_5 * Math.max(0.4, currentData.pm2_5 / 60))),
-      temperature: Number((row.temperature - 25 + currentData.temperature).toFixed(1)),
-      humidity: Math.min(100, Math.max(0, row.humidity - 70 + currentData.humidity)),
-    };
-  });
-
+  const calendarCells = useMemo(() => buildCalendarCells(history, metric), [history, metric]);
   const radarData = [
-    { subject: 'Nhiệt độ', A: currentData.temperature * 4, fullMark: 150 },
-    { subject: 'Độ ẩm', A: currentData.humidity, fullMark: 100 },
-    { subject: 'Gió', A: currentData.wind_speed * 5, fullMark: 100 },
-    { subject: 'UV', A: currentData.uv_index * 10, fullMark: 100 },
-    { subject: 'PM2.5', A: currentData.pm2_5, fullMark: 200 },
-    { subject: 'Ozone', A: currentData.ozone, fullMark: 150 },
+    { subject: 'AQI', value: safeNumber(current.aqi) },
+    { subject: 'PM2.5', value: safeNumber(current.pm2_5) },
+    { subject: 'PM10', value: safeNumber(current.pm10) },
+    { subject: 'NO2', value: safeNumber(current.no2) },
+    { subject: 'Ozone', value: safeNumber(current.ozone) },
+    { subject: 'UV', value: safeNumber(current.uv_index) * 10 },
   ];
-
-  const correlationData = dynamicHistory.map((row) => ({
-    x: row.temperature,
-    y: row.aqi,
-    z: row.pm2_5 * 2,
-  }));
-
-  const districtComparison = [
-    { name: 'Trung tâm', aqi: currentData.aqi + 30, color: '#ffb4ab' },
-    { name: 'Phía Đông', aqi: currentData.aqi - 15, color: '#ffdad6' },
-    { name: 'Khu công nghiệp', aqi: currentData.aqi + 60, color: '#93000a' },
-    { name: 'Ngoại thành', aqi: Math.max(20, currentData.aqi - 40), color: '#4edea3' },
-    { name: 'Khu sinh thái', aqi: Math.max(10, currentData.aqi - 60), color: '#adc6ff' },
-  ];
-
   const pollutantData = [
-    { name: 'PM2.5', value: currentData.pm2_5, color: '#ffb4ab' },
-    { name: 'PM10', value: currentData.pm10, color: '#ffdad6' },
-    { name: 'NO2', value: currentData.no2, color: '#adc6ff' },
-    { name: 'Ozone', value: currentData.ozone, color: '#4edea3' },
+    { name: 'Good', value: history.filter((row) => row.aqi <= 50).length, color: '#4edea3' },
+    { name: 'Moderate', value: history.filter((row) => row.aqi > 50 && row.aqi <= 100).length, color: '#f8d66d' },
+    { name: 'Unhealthy', value: history.filter((row) => row.aqi > 100 && row.aqi <= 150).length, color: '#ff9f43' },
+    { name: 'Very Unhealthy', value: history.filter((row) => row.aqi > 150).length, color: '#fc7c78' },
   ];
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
-        <div>
-          <h1 className="text-4xl font-bold flex items-center gap-3">
-            Phân tích Chuyên sâu
-            <span className="bg-primary/20 text-primary border border-primary/30 px-2 py-1 rounded text-xs font-mono uppercase tracking-widest">
-              Pro Mode
-            </span>
-          </h1>
-          <p className="text-on-surface-variant mt-2">
-            Dữ liệu hiện tại:{' '}
-            <strong className="text-primary">{currentProvince.name}</strong>
-            {detailQuery.error && <span className="ml-2 text-xs text-warning">(mock fallback)</span>}
-          </p>
-        </div>
-        <div className="flex flex-col md:flex-row gap-3 relative">
-          <div className="relative">
-            <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-            <input
-              type="text"
-              placeholder="Tìm kiếm tỉnh/thành phố..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className="pl-12 pr-4 py-3 bg-surface-container-high border border-outline-variant rounded-2xl w-full md:w-[300px] text-on-surface focus:border-primary focus:outline-none transition-all shadow-lg"
-            />
-            {searchQuery && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-surface-container-highest border border-outline-variant rounded-2xl max-h-[300px] overflow-y-auto z-50 shadow-2xl custom-scrollbar">
-                {filteredProvinces.map((province) => (
-                  <button
-                    key={province.id}
-                    onClick={() => {
-                      setSelectedProvinceId(province.id);
-                      setSearchQuery('');
-                    }}
-                    className="w-full text-left px-4 py-3 hover:bg-primary/20 transition-colors border-b border-outline-variant/10 last:border-0 flex justify-between items-center"
-                  >
-                    <div>
-                      <span className="font-bold">{province.name}</span>
-                      <span className="text-xs text-on-surface-variant ml-2">({province.en_name})</span>
-                    </div>
-                    <span className="text-[10px] uppercase font-mono px-2 py-1 bg-surface-container-low rounded-md">{province.region}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button className="bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant text-on-surface px-6 py-3 rounded-2xl transition-all flex items-center gap-2 font-mono text-sm shadow-lg">
-            <Download className="w-4 h-4" /> Xuất dữ liệu
-          </button>
-        </div>
+    <div className="mx-auto max-w-[1600px] px-6 py-8">
+      <div className="mb-8">
+        <p className="mb-2 text-xs font-mono uppercase tracking-[0.28em] text-primary">Forecast analytics lab</p>
+        <h1 className="text-4xl font-black tracking-tight">Analytics</h1>
+        {detailQuery.error && <p className="mt-2 text-xs font-mono text-warning">API fallback đang bật cho tỉnh này.</p>}
+        {detailQuery.loading && <p className="mt-2 text-xs font-mono text-secondary">Đang tải history/forecast từ API...</p>}
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <FilterBox icon={<MapPin className="h-5 w-5" />}>
+          <select
+            value={selectedProvinceId}
+            onChange={(event) => setSelectedProvinceId(Number(event.target.value))}
+            className="w-full bg-transparent text-lg font-bold outline-none"
+          >
+            {provinceQuery.data.map((province) => (
+              <option key={province.province_id} value={province.province_id} className="bg-surface">
+                Province: {province.name_vi}
+              </option>
+            ))}
+          </select>
+        </FilterBox>
+        <FilterBox icon={<CalendarDays className="h-5 w-5" />}>
+          <select
+            value={rangeHours}
+            onChange={(event) => setRangeHours(Number(event.target.value))}
+            className="w-full bg-transparent text-lg font-bold outline-none"
+          >
+            {ranges.map((range) => (
+              <option key={range.hours} value={range.hours} className="bg-surface">
+                {range.label}
+              </option>
+            ))}
+          </select>
+        </FilterBox>
+        <FilterBox icon={<SlidersHorizontal className="h-5 w-5" />}>
+          <select
+            value={metric}
+            onChange={(event) => setMetric(event.target.value as MetricKey)}
+            className="w-full bg-transparent text-lg font-bold outline-none"
+          >
+            {metrics.map((item) => (
+              <option key={item.key} value={item.key} className="bg-surface">
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </FilterBox>
       </div>
 
       <motion.div
-        key={selectedProvinceId}
-        initial={{ opacity: 0, y: 10 }}
+        key={`${selectedProvinceId}-${rangeHours}-${metric}`}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+        className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
-        <MetricCard label="AQI Hiện tại" value={Math.round(currentData.aqi).toString()} tone={currentData.aqi > 100 ? 'text-error' : 'text-primary'} />
-        <MetricCard label="Nhiệt độ" value={`${currentData.temperature.toFixed(1)}°C`} />
-        <MetricCard label="Bất thường AI" value={currentData.anomaly_score.toFixed(2)} tone={currentData.is_anomaly ? 'text-warning' : 'text-primary'} />
-        <MetricCard label="UV Index" value={currentData.uv_index.toFixed(1)} />
+        <KpiCard label={`${metricLabels[metric]} hiện tại`} value={formatMetric(current, metric)} icon={<Activity className="h-5 w-5" />} />
+        <KpiCard label="AQI hiện tại" value={Math.round(current.aqi)} suffix="AQI" tone={current.aqi > 150 ? 'text-error' : 'text-primary'} />
+        <KpiCard label="AI anomaly score" value={anomalyScore.toFixed(2)} tone={isAiAnomaly ? 'text-error' : 'text-secondary'} />
+        <KpiCard label="Khoảng dữ liệu" value={activeRange.label} icon={<TrendingUp className="h-5 w-5" />} tone="text-on-surface" />
       </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        <div className="md:col-span-8 glass-card p-8">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-2xl font-bold flex items-center gap-2">
-              <TrendingUp className="w-6 h-6 text-primary" />
-              Biến thiên Ô nhiễm (24h)
-            </h2>
-          </div>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={dynamicHistory}>
-                <XAxis dataKey="time" stroke="#86948a" fontSize={10} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: 'rgba(78, 222, 163, 0.05)' }} contentStyle={{ backgroundColor: '#161d19', border: '1px solid #3c4a42', borderRadius: '12px' }} />
-                <Area type="monotone" dataKey="aqi" fill="#adc6ff" stroke="#adc6ff" fillOpacity={0.2} />
-                <Bar dataKey="pm2_5" barSize={20} fill="#4edea3" radius={[4, 4, 0, 0]} />
-                <Line type="monotone" dataKey="temperature" stroke="#ffb4ab" strokeWidth={3} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+        <div className="xl:col-span-12">
+          <ForecastBandChart
+            history={history}
+            forecast={detailQuery.data.forecast}
+            metric={metric}
+            title={`${metricLabels[metric]} history + forecast confidence band`}
+          />
         </div>
 
-        <div className="md:col-span-4 glass-card p-8 flex flex-col">
-          <h2 className="text-2xl font-bold mb-8 flex items-center gap-2">
-            <Activity className="w-6 h-6 text-warning" />
-            Cấu thành Ô nhiễm
-          </h2>
-          <div className="flex-1 min-h-[300px]">
+        <Panel className="xl:col-span-6" title="Daily AQI Calendar">
+          <div className="mb-4 flex justify-end gap-2 text-xs font-mono text-on-surface-variant">
+            <span>Avg:</span>
+            <span className="h-3 w-8 rounded bg-primary" />
+            <span className="h-3 w-8 rounded bg-warning" />
+            <span className="h-3 w-8 rounded bg-error" />
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+            {calendarCells.map((cell) => (
+              <div
+                key={cell.label}
+                className={cn('rounded-xl p-3 text-center font-bold text-surface shadow-sm', heatColor(cell.value))}
+                title={`${cell.label}: ${safeNumber(cell.value).toFixed(1)}`}
+              >
+                {cell.day}
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-6" title="Top 10 Provinces">
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topProvinces}>
+                <XAxis dataKey="name" stroke="#86948a" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis stroke="#86948a" fontSize={10} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#161d19', border: '1px solid #3c4a42', borderRadius: 12 }} />
+                <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                  {topProvinces.map((entry) => (
+                    <Cell key={entry.name} fill={entry.value > 150 ? '#fc7c78' : entry.value > 100 ? '#ff9f43' : '#4edea3'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-6" title="Radar profile">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="#3c4a42" />
+                <PolarAngleAxis dataKey="subject" stroke="#bbcabf" fontSize={11} />
+                <Radar dataKey="value" stroke="#4edea3" fill="#4edea3" fillOpacity={0.35} />
+                <Tooltip contentStyle={{ backgroundColor: '#161d19', border: '1px solid #3c4a42', borderRadius: 12 }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-6" title="AQI distribution">
+          <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={pollutantData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
+                <Pie data={pollutantData} dataKey="value" outerRadius={120} innerRadius={48} paddingAngle={3}>
                   {pollutantData.map((entry) => (
                     <Cell key={entry.name} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#1a211d', border: '1px solid #3c4a42', borderRadius: '12px' }} />
+                <Tooltip contentStyle={{ backgroundColor: '#161d19', border: '1px solid #3c4a42', borderRadius: 12 }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="flex flex-wrap justify-center gap-4 mt-4">
+          <div className="flex flex-wrap justify-center gap-4 text-xs font-mono">
             {pollutantData.map((entry) => (
-              <div key={entry.name} className="flex items-center gap-2 text-xs font-mono uppercase">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
+              <span key={entry.name} className="flex items-center gap-2">
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: entry.color }} />
                 {entry.name}
-              </div>
+              </span>
             ))}
           </div>
-        </div>
-
-        <div className="md:col-span-4 glass-card p-8 flex flex-col">
-          <h2 className="text-2xl font-bold mb-8 flex items-center gap-2">
-            <Zap className="w-6 h-6 text-tertiary-container" />
-            Chỉ số đa chiều
-          </h2>
-          <div className="flex-1 min-h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                <PolarGrid stroke="#3c4a42" />
-                <PolarAngleAxis dataKey="subject" stroke="#bbcabf" fontSize={10} />
-                <Radar name={currentProvince.name} dataKey="A" stroke="#4edea3" fill="#4edea3" fillOpacity={0.4} />
-                <Tooltip contentStyle={{ backgroundColor: '#1a211d', border: '1px solid #3c4a42', borderRadius: '12px' }} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="md:col-span-4 glass-card p-8">
-          <h2 className="text-2xl font-bold mb-8 flex items-center gap-2">
-            <BarChart3 className="w-6 h-6 text-secondary" />
-            Khu vực nội bộ
-          </h2>
-          <div className="space-y-6">
-            {districtComparison.map((district) => (
-              <div key={district.name}>
-                <div className="flex justify-between text-sm font-mono text-on-surface-variant mb-2">
-                  <span>{district.name}</span>
-                  <span className="font-bold text-on-surface">AQI: {Math.round(district.aqi)}</span>
-                </div>
-                <div className="w-full bg-surface-container-highest h-3 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(100, (district.aqi / 300) * 100)}%` }}
-                    className="h-full rounded-full"
-                    style={{ backgroundColor: district.color }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="md:col-span-4 glass-card p-8">
-          <h2 className="text-2xl font-bold mb-8 flex items-center gap-2">
-            <Box className="w-6 h-6 text-error" />
-            Phân tán Bất thường
-          </h2>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                <XAxis type="number" dataKey="x" name="Nhiệt độ" unit="°C" stroke="#86948a" fontSize={10} />
-                <YAxis type="number" dataKey="y" name="AQI" stroke="#86948a" fontSize={10} />
-                <ZAxis type="number" dataKey="z" range={[50, 400]} />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: '#1a211d', border: '1px solid #3c4a42', borderRadius: '12px' }} />
-                <Scatter name="Dữ liệu điểm" data={correlationData} fill="#ffb4ab" fillOpacity={0.6} />
-              </ScatterChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        </Panel>
       </div>
     </div>
   );
 }
 
-function MetricCard({ label, value, tone = 'text-on-surface' }: { label: string; value: string; tone?: string }) {
+function FilterBox({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
-    <div className="glass-card p-6">
-      <p className="text-xs font-mono text-on-surface-variant mb-1 uppercase tracking-widest">{label}</p>
-      <div className="flex items-end gap-2">
-        <span className="text-4xl font-bold tracking-tighter">{value}</span>
-        <span className={cn('font-bold mb-1', tone)}>{tone === 'text-error' ? 'Cảnh báo' : 'Ổn định'}</span>
-      </div>
+    <div className="glass-card flex items-center gap-3 rounded-3xl p-4">
+      <div className="rounded-2xl bg-surface-container-highest p-3 text-primary">{icon}</div>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
+}
+
+function Panel({ title, className, children }: { title: string; className?: string; children: ReactNode }) {
+  return (
+    <section className={cn('glass-card p-6', className)}>
+      <h2 className="mb-5 text-xl font-black">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function formatMetric(row: EnvironmentalData, metric: MetricKey): string {
+  const value = safeNumber(row[metric]);
+  if (metric === 'temperature') return `${value.toFixed(1)}°C`;
+  if (metric === 'humidity') return `${value.toFixed(0)}%`;
+  if (metric === 'wind_speed') return `${value.toFixed(1)} km/h`;
+  return metric === 'aqi' ? Math.round(value).toString() : value.toFixed(1);
+}
+
+function buildCalendarCells(history: EnvironmentalData[], metric: MetricKey) {
+  const byDate = new Map<string, number[]>();
+  history.forEach((row) => {
+    const date = new Date(row.time);
+    const label = Number.isNaN(date.getTime()) ? row.time.slice(0, 10) : date.toISOString().slice(0, 10);
+    const values = byDate.get(label) ?? [];
+    values.push(safeNumber(row[metric]));
+    byDate.set(label, values);
+  });
+
+  return Array.from(byDate.entries()).slice(-35).map(([label, values]) => {
+    const date = new Date(label);
+    const day = Number.isNaN(date.getTime()) ? label.slice(-2) : date.getDate().toString();
+    const value = values.reduce((sum, item) => sum + item, 0) / Math.max(1, values.length);
+    return { label, day, value };
+  });
+}
+
+function heatColor(value: number): string {
+  if (value > 150) return 'bg-error';
+  if (value > 100) return 'bg-warning';
+  if (value > 50) return 'bg-tertiary-container';
+  return 'bg-primary';
 }

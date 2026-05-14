@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from backend.api.inference_cache import get_cached_inference
 from backend.api.routes.provinces import province_meta
 from backend.models.predict import DEFAULT_FORECAST, predict_forecast
 
@@ -17,9 +18,13 @@ router = APIRouter(tags=["forecast"])
 async def get_forecast(province_id: int) -> dict[str, Any]:
     province_meta(province_id)
     try:
-        forecast = await predict_forecast(province_id)
+        inference, _source = await get_cached_inference(province_id)
+        forecast = inference.get("forecast", DEFAULT_FORECAST)
     except Exception as exc:
         logger.warning("Forecast fallback for province %s: %s", province_id, exc)
-        forecast = DEFAULT_FORECAST
+        try:
+            forecast = await predict_forecast(province_id)
+        except Exception:
+            forecast = DEFAULT_FORECAST
 
     return {"province_id": province_id, **forecast}

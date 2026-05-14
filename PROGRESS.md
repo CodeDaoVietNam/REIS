@@ -8,11 +8,11 @@
 ## 📊 Overall Status
 
 ```
-Stage 1: Data Pipeline        ████████████████░░  ~85%  ✅ Integration Testing
+Stage 1: Data Pipeline        ████████████████░░  ~88%  ✅ Integration + backfill script
 Stage 2A: ML Models           ████████████████░░  ~85%  ✅ Core models + tests
 Stage 2B: Insights (LLM)      ███████████████░░░  ~80%  ✅ Prompt/cache/client + API route
-Stage 2C: API & WebSocket     █████████████░░░░░  ~70%  ✅ REST routes + WS fallback
-Stage 2D: Frontend             ██████████████░░░░  ~75%  ✅ API-integrated UI + fallback
+Stage 2C: API & WebSocket     ████████████████░░  ~82%  ✅ Contract cleanup + inference cache
+Stage 2D: Frontend             █████████████████░  ~88%  ✅ Demo-ready UX cleanup
 Stage 2E: Airflow MLOps       ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 Stage 2F: Notebooks (EDA)     █████████████████░  ~90%  ✅ EDA notebooks completed
 Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
@@ -36,13 +36,31 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 | `backend/processing/consumer.py` | ✅ Done | Kafka → TimescaleDB batch insert, manual commit |
 | `backend/processing/feature_engineer.py` | ✅ Done | Build 13-feature vectors, lag + rolling stats |
 | `backend/scripts/setup_db.py` | ✅ Done | Tạo tables + hypertable + indexes |
+| `backend/scripts/backfill_historical_data.py` | ✅ Done | Backfill lịch sử Open-Meteo idempotent, default 50 ngày / 63 tỉnh |
 | `backend/scripts/init-db.sql` | ✅ Done | SQL schema reference |
 | `backend/notebooks/01_api_exploration.ipynb` | ✅ Done | Explore Open-Meteo API structure |
 | `backend/notebooks/03_backfill_historical_data.ipynb` | ✅ Done | Cào 50 ngày data lịch sử |
 
-### Integration tests đã chạy (2026-04-12)
+### Integration tests đã chạy
 
 ```
+2026-05-14 — Full Kafka pipeline smoke test:
+✅ docker-compose infra tối thiểu: zookeeper/kafka/redis/timescaledb/kafka-ui healthy
+✅ Open-Meteo collector → Kafka producer: 63/63 records published, DLQ=0
+✅ Kafka consumer → TimescaleDB: `Flushed 63 records`, lag=0
+✅ TimescaleDB `env_readings`: row count 47,352 → 47,415, đủ 63 records tại `2026-05-14 18:45:00+00`
+✅ FastAPI `/api/provinces`: 63/63 provinces có `current`
+✅ FastAPI `/api/province/1`: có `current` và `history`
+✅ FastAPI `/api/anomalies`: trả anomaly list từ DB
+
+2026-05-14 — Historical backfill script smoke:
+✅ `backend/scripts/backfill_historical_data.py --days 50 --sleep-between 0.2`
+✅ Open-Meteo historical backfill: 63/63 tỉnh success, fetched 77,112 hourly rows
+✅ TimescaleDB insert idempotent: inserted thêm 29,439 rows sau khi fix timezone UTC, không duplicate nhờ unique index `(province_id, time)`
+✅ `env_readings`: total 77,099 rows, 63 provinces, min per province 1,225 rows, max 1,338 rows
+✅ Time coverage: `2026-03-20 00:00:00+00` → `2026-05-14 13:00:00+00`, `future_rows=0`
+
+2026-04-12 — Pipeline integration:
 ✅ collector → Kafka: 63 provinces fetched + published successfully
 ✅ Kafka consumer → TimescaleDB: batch insert working, offset committed
 ✅ Redis DLQ: routing on Kafka failures working
@@ -71,6 +89,10 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 
 ✅ consumer.py: TypeError datetime string → datetime object conversion
    → Added _parse_time() với datetime.fromisoformat() cho ISO 8601 strings
+
+✅ consumer.py: Batch timeout chỉ flush khi có message mới
+   → Đổi consumer loop sang `getmany(timeout_ms=1000)` để batch tự flush dù Kafka im lặng
+   → Ctrl+C entrypoint thoát sạch hơn, không in traceback dev UX
 
 ✅ scheduler.py: Import paths sai (backend.ingestion → ingestion)
    → Fixed sys.path: parents[2] → parents[1]
@@ -176,7 +198,8 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 |------|------|--------|
 | `backend/api/main.py` | FastAPI app, CORS local dev, lifespan gắn DB pool best-effort, mount routes | ✅ Done |
 | `backend/api/db.py` | `asyncpg.create_pool` helper, DB lỗi thì API tự fallback | ✅ Done |
-| `backend/api/routes/provinces.py` | `GET /api/provinces`, `GET /api/province/{id}`; 63 tỉnh từ constants | ✅ Done |
+| `backend/api/inference_cache.py` | TTL cache chia sẻ cho province/forecast/insights để giảm inference lặp | ✅ Done |
+| `backend/api/routes/provinces.py` | `GET /api/provinces`, `GET /api/province/{id}?hours=...`, `GET /api/summary`, `GET /api/compare`; 63 tỉnh từ constants | ✅ Done |
 | `backend/api/routes/forecast.py` | `GET /api/forecast/{id}` gọi `predict_forecast`, fallback không crash | ✅ Done |
 | `backend/api/routes/insights.py` | `GET /api/insights/{id}`, `GET /api/anomalies`; fallback khi DB/LLM lỗi | ✅ Done |
 | `backend/api/websocket.py` | Re-export WebSocket router cho `/ws/live` | ✅ Done |
@@ -187,14 +210,30 @@ Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░�
 ### Verification
 
 ```bash
-/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_api_routes.py backend/tests/test_isolation_forest.py -v
-# 13 passed
+/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_api_routes.py backend/tests/test_isolation_forest.py backend/tests/test_consumer.py -v
+# 24 passed
 
 cd backend
 /home/ductien/miniconda3/envs/reis/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 # /api/health   -> 200
 # /docs         -> 200
 # /api/provinces -> 200, 63 records
+# /api/province/1 -> current + history from DB after smoke test
+# /api/summary -> KPI toàn quốc
+# /api/compare?province_ids=1,2,4&days=7&metric=aqi -> compare contract
+
+2026-05-14 API smoke sau backfill:
+# /api/summary -> {"aqi_avg":104.0,"pm25_avg":27.5,"aqi_warning_count":12,"ai_anomaly_count":0,...}
+# /api/province/1?hours=168 -> current=True, history=169
+# /api/compare?province_ids=1,2,4&days=7&metric=aqi -> provinces=3, histories=[169,169,169]
+
+2026-05-14 demo-ready contract cleanup:
+✅ `/api/summary` phân biệt rõ `aqi_warning_count` và `ai_anomaly_count`
+✅ `/api/province/{id}` trả thêm `data_source`, `inference_source`, `updated_at`
+✅ `/api/forecast`, `/api/province`, `/api/insights`, `/api/compare` dùng chung inference cache TTL
+✅ CORS đọc từ `CORS_ORIGINS`, default gồm ports `3000`, `3001`, `5173`
+✅ Docker Compose frontend chuyển sang Vite `VITE_API_URL`/`VITE_WS_URL`
+✅ `backend/Dockerfile` và `frontend/Dockerfile` đã thêm cho app services
 ```
 
 ### Còn thiếu / cần làm tiếp
@@ -202,8 +241,8 @@ cd backend
 | File | Mô tả | Priority |
 |------|--------|----------|
 | `backend/api/alert_manager.py` | Telegram Bot + Email SMTP alerts | 🟡 Trung |
-| DB smoke test | Chạy API với TimescaleDB thật để verify SQL đọc `env_readings` | 🔴 Cao |
 | Docker runtime | Thêm/verify Dockerfile backend/frontend và compose commands | 🟡 Trung |
+| ML inference data quality | Forecast/anomaly hiện fallback khi feature frame có NaN hoặc thiếu history đủ dài | 🟡 Trung |
 
 ### Ghi chú kỹ thuật
 
@@ -220,20 +259,29 @@ cd backend
 | File / Area | Mô tả | Status |
 |-------------|------|--------|
 | `frontend/package.json` | Vite + React + TypeScript app scripts (`dev`, `build`, `lint`, `preview`) | ✅ Done |
-| `frontend/src/App.tsx` | React Router: `/`, `/dashboard`, `/analytics`, `/map`, `/alerts` | ✅ Done |
-| `frontend/src/components/Navigation.tsx` | Navbar desktop + bottom nav mobile, theme toggle | ✅ Done |
+| `frontend/src/App.tsx` | React Router: `/`, `/dashboard`, `/analytics`, `/compare`, `/map`, `/alerts` | ✅ Done |
+| `frontend/src/components/Navigation.tsx` | Navbar desktop + bottom nav mobile, theme toggle, Compare nav | ✅ Done |
 | `frontend/src/contexts/ThemeContext.tsx` | Tách hook `useTheme` để pass `react-refresh/only-export-components` | ✅ Done |
 | `frontend/src/pages/LandingPage.tsx` | Landing page marketing/hero cho REIS/AeroSense | ✅ Done |
-| `frontend/src/pages/Dashboard.tsx` | Dashboard theo tỉnh, gọi `/api/province/{id}` và `/api/insights/{id}` qua hook | ✅ API + fallback |
-| `frontend/src/pages/Analytics.tsx` | Rename từ `Analystics.tsx`, dùng history từ province detail, không random render | ✅ API + fallback |
-| `frontend/src/pages/NationPage.tsx` | Vietnam map dùng `/api/provinces` + `/ws/live` nếu có realtime | ✅ API + fallback |
+| `frontend/src/pages/Dashboard.tsx` | Dashboard V2: KPI row, Vietnam live map, AQI gauge, forecast band, insight panel | ✅ API + fallback |
+| `frontend/src/pages/Analytics.tsx` | Analytics V2: filter Province/Range/Metric, forecast confidence band, calendar/top/radar/distribution | ✅ API + fallback |
+| `frontend/src/pages/Compare.tsx` | Compare page: multi-line trend, 3 province cards, radar/gauge, heatmap table | ✅ API + fallback |
+| `frontend/src/pages/NationPage.tsx` | Vietnam map dùng chung `VietnamLiveMap`, marker đồng bộ Dashboard | ✅ API + fallback |
+| `frontend/src/pages/HealthAlert.tsx` | Tách AQI Health Alerts / AI Anomaly Events, không giả lập event khi API rỗng | ✅ API + fallback |
+| `frontend/src/pages/LandingPage.tsx` | Bỏ hardcode fake KPI, dùng `/api/summary` hoặc nhãn fallback rõ | ✅ API + fallback |
 | `frontend/src/pages/HealthAlert.tsx` | Alert center dùng `/api/anomalies`, fallback rõ ràng khi API down | ✅ API + fallback |
 | `frontend/src/types.ts` | Chỉ chứa interfaces/types frontend + API contracts | ✅ Done |
 | `frontend/src/mocks/mockData.ts` | 63 provinces + mock deterministic, không `Math.random()` trong render path | ✅ Done |
 | `frontend/src/services/apiClient.ts` | REST client dùng `VITE_API_URL`, fallback default `http://localhost:8000` | ✅ Done |
-| `frontend/src/hooks/useAQIData.ts` | Hooks fetch provinces/detail/insights/anomalies + normalize + mock fallback | ✅ Done |
+| `frontend/src/hooks/useAQIData.ts` | Hooks fetch provinces/detail/summary/compare/insights/anomalies + normalize + mock fallback | ✅ Done |
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook dùng `VITE_WS_URL`, auto reconnect 1s/2s/4s/max 30s | ✅ Done |
 | `frontend/src/services/geminiService.ts` | Typed mock AI advice service, giữ làm fallback/dev utility | ✅ Done |
+| `frontend/src/components/KpiCard.tsx` | Reusable KPI card cho dashboard/analytics | ✅ Done |
+| `frontend/src/components/AqiGauge.tsx` | Reusable AQI gauge | ✅ Done |
+| `frontend/src/components/ForecastBandChart.tsx` | History + forecast lower/upper/value confidence band | ✅ Done |
+| `frontend/src/components/InsightCard.tsx` | Insight card có source/cache/risk/timestamp metadata | ✅ Done |
+| `frontend/src/components/VietnamLiveMap.tsx` | Reusable Vietnam live map dùng `/api/provinces`/WS summaries | ✅ Done |
+| `frontend/src/components/ProvinceCompareCard.tsx` | Compare card với gauge + anomaly badge + radar | ✅ Done |
 
 ### Frontend verification (2026-05-14)
 
@@ -243,7 +291,7 @@ npm install
 npm run lint
 # pass
 npm run build
-# build pass
+# build pass, Vite warning bundle ~948 KB
 
 npm run dev -- --host 0.0.0.0 --port 3000
 curl -I http://localhost:3000/
@@ -252,11 +300,9 @@ curl -I http://localhost:3000/
 
 ### Vấn đề còn tồn tại / cần làm tiếp
 
-1. Build warning: bundle JS ~944 KB, nên code-split routes sau nếu muốn production polish.
-2. Cần smoke test UI khi backend + DB thật cùng chạy để xác nhận số liệu realtime không chỉ fallback.
-3. Có thể thêm loading/error component dùng chung để UI nhất quán hơn.
-3. Thêm `useWebSocket.ts` khi backend có `WS /ws/live`
-4. Đồng bộ tên page `Analystics.tsx` → `Analytics.tsx` để tránh typo lâu dài
+1. Build warning: bundle JS ~954 KB, nên code-split routes/recharts/map sau nếu muốn production polish.
+2. Smoke test browser nên kiểm tra thêm Dashboard V2, Analytics filters và Compare page với API thật.
+3. Dữ liệu đã dày hơn, nhưng anomaly/forecast model vẫn nên retrain/validate lại sau backfill để tận dụng lịch sử mới.
 
 ---
 
@@ -434,25 +480,20 @@ ENV, LOG_LEVEL, INSIGHT_CACHE_TTL, ANOMALY_THRESHOLD, CRITICAL_THRESHOLD
 
 ## 🚀 Next Steps
 
-### Ngay lập tức (Stage 2C - API)
-1. Viết routes: `provinces.py`, `forecast.py`, `insights.py`
-2. Kết nối API routes với `backend/models/predict.py` và `backend/insights/insight_cache.py`
-3. Mở rộng `backend/tests/test_api_routes.py` cho routes thật
-
-### Song song (Stage 2D - Frontend)
-4. Fix `npm run lint` trong frontend
-5. Tách mock data khỏi `types.ts` sang data/service riêng nếu cần
-6. Sau khi API ready: thay mock data bằng API/WebSocket thật
-7. Cân nhắc rename `Analystics.tsx` → `Analytics.tsx`
+### Ngay lập tức (Data + Demo Readiness)
+1. Chạy API + frontend, kiểm tra Dashboard V2, Analytics filters và Compare page trên browser với dữ liệu backfill thật
+2. Re-run training/inference validation để anomaly/forecast tận dụng thêm 50 ngày lịch sử
+3. Chạy thêm một realtime cycle sau backfill để xác nhận dữ liệu mới tiếp tục nối vào timeline
 
 ### Polish còn thiếu
-8. Bổ sung `backend/tests/test_isolation_forest.py`
-9. Rerun/finalize `04_eda_air_quality.ipynb` để toàn bộ code cells sạch output cuối
-10. Cân nhắc rename `05-feature-engineering.ipynb` → `05_feature_engineering.ipynb` cho khớp `TASK_ASSIGNMENT.md`
+4. Code-split frontend routes/charts/map để giảm bundle warning
+5. Thêm loading/error component dùng chung để UI nhất quán hơn
+6. Rerun/finalize `04_eda_air_quality.ipynb` để toàn bộ code cells sạch output cuối
+7. Cân nhắc rename `05-feature-engineering.ipynb` → `05_feature_engineering.ipynb` cho khớp `TASK_ASSIGNMENT.md`
 
 ### Cuối cùng (MLOps & Demo)
-11. Viết `backend/airflow/dags/weekly_retrain.py`
-12. Viết `tools/simulator.py` để demo anomaly spike
+8. Viết `backend/airflow/dags/weekly_retrain.py`
+9. Viết `tools/simulator.py` để demo anomaly spike
 
 ---
 
@@ -499,5 +540,25 @@ ENV, LOG_LEVEL, INSIGHT_CACHE_TTL, ANOMALY_THRESHOLD, CRITICAL_THRESHOLD
 - Đã selective import `frontend/` từ nhánh `feat_fe` vào `develop`
 - Frontend hiện có Vite React SPA, 5 routes, dashboard/map/analytics/alerts dùng mock data
 - `npm run build` pass, dev server port 3000 trả HTTP 200
-- `npm run lint` còn 30 errors + 1 warning, cần fix trước khi coi frontend sạch
+- Ghi chú lịch sử: lint từng còn lỗi, đã được xử lý ở các task frontend/API integration sau đó
+
+2026-05-14 — Dashboard/Analytics V2 + historical backfill foundation
+- Đã thêm `backend/scripts/backfill_historical_data.py`, dry-run 1 ngày / Hà Nội fetch được 48 hourly rows, không ghi DB khi `--dry-run`
+- Đã chạy backfill thật `--days 50`: 63/63 tỉnh success, fetched 77,112 rows, inserted thêm 29,439 rows sau khi chuẩn hóa UTC
+- Đã fix timezone cho backfill script và realtime collector: Open-Meteo timestamps được lưu UTC đúng, không còn future rows
+- DB sau backfill: 77,099 rows, đủ 63 tỉnh, mỗi tỉnh tối thiểu 1,225 rows, latest `2026-05-14 13:00:00+00`
+- Đã mở rộng API: `/api/province/{id}?hours=...`, `/api/summary`, `/api/compare`
+- Đã thêm Dashboard V2: KPI row, Vietnam live map, AQI gauge, forecast band, insight metadata
+- Đã thêm Analytics V2: Province/Range/Metric filters, forecast confidence band, calendar/top/radar/distribution
+- Đã thêm Compare page `/compare`: multi-line chart, province compare cards, heatmap table
+- Verification: backend selected tests 24 passed, frontend `npm run lint` pass, frontend `npm run build` pass, API smoke sau backfill pass
+
+2026-05-14 — Demo-ready quality audit fixes
+- Đã chuẩn hóa wording/contract: `AQI warnings` khác `AI anomalies`
+- Đã thêm inference cache TTL cho API province/forecast/insights/compare để giảm gọi model lặp
+- Đã sửa Alerts không dùng mock khi API trả empty list; pollen/allergy được gắn nhãn demo placeholder
+- Map page dùng chung `VietnamLiveMap` với Dashboard, marker đồng nhất
+- Landing page dùng `/api/summary` hoặc nhãn fallback, không còn hardcode `Hanoi 42 AQI`
+- Docker Compose app services đã cập nhật Vite/FastAPI hiện tại, thêm `backend/Dockerfile` và `frontend/Dockerfile`
+- Verification: backend selected tests 26 passed, frontend `npm run lint` pass, frontend `npm run build` pass
 ```

@@ -1,13 +1,16 @@
 import type {
   AnomalyPayload,
   AnomalyRecord,
+  CompareResponse,
   EnvironmentalData,
   ForecastPayload,
   InsightPayload,
+  MetricKey,
   Province,
   ProvinceDetail,
   ProvinceSummary,
   Region,
+  SummaryPayload,
 } from '@/src/types';
 
 export const PROVINCES: Province[] = [
@@ -204,6 +207,9 @@ export function getMockProvinceDetail(provinceId: number): ProvinceDetail {
       ? { score: current.anomaly_score, label: 'ANOMALY', strict_alert: current.aqi >= 150 }
       : DEFAULT_ANOMALY,
     forecast: DEFAULT_FORECAST,
+    data_source: 'fallback',
+    inference_source: 'mock',
+    updated_at: current.time,
   };
 }
 
@@ -243,4 +249,44 @@ export function getMockAnomalies(): AnomalyRecord[] {
       province: summary,
       reading: summary.current as EnvironmentalData,
     }));
+}
+
+export function getMockSummary(): SummaryPayload {
+  const readings = MOCK_ENV_DATA;
+  const aqiAvg = readings.reduce((sum, row) => sum + row.aqi, 0) / readings.length;
+  const pm25Avg = readings.reduce((sum, row) => sum + row.pm2_5, 0) / readings.length;
+  return {
+    aqi_avg: Number(aqiAvg.toFixed(1)),
+    pm25_avg: Number(pm25Avg.toFixed(1)),
+    aqi_warning_count: readings.filter((row) => row.aqi >= 150).length,
+    ai_anomaly_count: readings.filter((row) => row.is_anomaly).length,
+    warning_count: readings.filter((row) => row.aqi >= 150).length,
+    anomaly_count: readings.filter((row) => row.is_anomaly).length,
+    province_count: PROVINCES.length,
+    latest_time: readings[0]?.time ?? null,
+  };
+}
+
+export function getMockCompare(provinceIds: number[] = [1, 2, 4], days = 7, metric: MetricKey = 'aqi'): CompareResponse {
+  return {
+    metric,
+    days,
+    provinces: provinceIds.map((provinceId) => {
+      const detail = getMockProvinceDetail(provinceId);
+      return {
+        province: detail.province,
+        current: detail.current,
+        history: detail.history,
+        anomaly: detail.anomaly,
+        radar: {
+          aqi: detail.current.aqi,
+          pm2_5: detail.current.pm2_5,
+          pm10: detail.current.pm10,
+          no2: detail.current.no2,
+          ozone: detail.current.ozone,
+          uv_index: detail.current.uv_index,
+        },
+      };
+    }),
+  };
 }
