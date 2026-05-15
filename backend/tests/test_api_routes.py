@@ -224,6 +224,26 @@ async def test_anomalies_returns_empty_list_without_db():
     assert response.json() == []
 
 
+@pytest.mark.asyncio
+async def test_province_report_returns_pdf_without_db():
+    async with make_client() as client:
+        response = await client.get("/api/report/province/1.pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+
+@pytest.mark.asyncio
+async def test_compare_report_returns_pdf_without_db():
+    async with make_client() as client:
+        response = await client.get("/api/report/compare.pdf?province_ids=1,2,4&days=7&metric=aqi")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+
 def test_alert_record_contract_classifies_combined_event():
     from backend.api.routes.insights import _build_alert_record
 

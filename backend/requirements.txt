@@ -34,6 +34,7 @@ APScheduler==3.10.4       # APScheduler (15-min collection cycles)
 fastapi==0.109.2          # FastAPI web framework
 uvicorn[standard]==0.27.1  # ASGI server (with reload, logs)
 python-multipart==0.0.9   # Form data parsing
+reportlab==4.2.5          # PDF report generation
 
 # ── LLM (Generative AI) ─────────────────────────────────────────────
 google-generativeai==0.8.3  # Gemini API client

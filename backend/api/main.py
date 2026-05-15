@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.api import db, websocket
-from backend.api.routes import forecast, insights, provinces
+from backend.api.routes import forecast, insights, provinces, reports
 from backend.api.ws_manager import manager as ws_manager
 from backend.config.logging_config import setup_logging
 from backend.config.settings import settings
@@ -69,6 +69,7 @@ app.add_middleware(
 app.include_router(provinces.router)
 app.include_router(forecast.router)
 app.include_router(insights.router)
+app.include_router(reports.router)
 app.include_router(websocket.router)
 
 

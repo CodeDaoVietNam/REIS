@@ -10,10 +10,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { GitCompareArrows, SlidersHorizontal, TimerReset } from 'lucide-react';
+import { FileDown, GitCompareArrows, SlidersHorizontal, TimerReset } from 'lucide-react';
 import { ProvinceCompareCard } from '@/src/components/ProvinceCompareCard';
 import { useCompare, useProvinces } from '@/src/hooks/useAQIData';
 import { cn, formatDateLabel, safeNumber } from '@/src/lib/utils';
+import { getCompareReportUrl } from '@/src/services/apiClient';
 import type { CompareProvince, MetricKey } from '@/src/types';
 
 const metricOptions: Array<{ key: MetricKey; label: string }> = [
@@ -43,7 +44,18 @@ export default function Compare() {
       <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="mb-2 text-xs font-mono uppercase tracking-[0.28em] text-primary">Multi province cockpit</p>
-          <h1 className="text-4xl font-black tracking-tight">Compare</h1>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <h1 className="text-4xl font-black tracking-tight">Compare</h1>
+            <a
+              href={getCompareReportUrl(provinceIds, days, metric)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/20"
+            >
+              <FileDown className="h-4 w-4" />
+              Export compare PDF
+            </a>
+          </div>
           <p className="mt-2 text-on-surface-variant">
             So sánh tối đa 3 tỉnh theo lịch sử, radar và bảng heatmap.
             {compareQuery.error && <span className="ml-2 text-xs font-mono text-warning">(mock fallback)</span>}

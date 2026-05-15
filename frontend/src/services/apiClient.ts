@@ -11,6 +11,10 @@ import type {
 
 export const API_BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
+export function buildApiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -70,4 +74,13 @@ export function getSummary(): Promise<SummaryPayload> {
 export function getCompare(provinceIds: number[], days: number, metric: MetricKey): Promise<CompareResponse> {
   const ids = provinceIds.join(',');
   return requestJson<CompareResponse>(`/api/compare?province_ids=${ids}&days=${days}&metric=${metric}`);
+}
+
+export function getProvinceReportUrl(provinceId: number, hours = 48): string {
+  return buildApiUrl(`/api/report/province/${provinceId}.pdf?hours=${hours}`);
+}
+
+export function getCompareReportUrl(provinceIds: number[], days: number, metric: MetricKey): string {
+  const ids = provinceIds.join(',');
+  return buildApiUrl(`/api/report/compare.pdf?province_ids=${ids}&days=${days}&metric=${metric}`);
 }

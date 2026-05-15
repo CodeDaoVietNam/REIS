@@ -15,11 +15,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Activity, CalendarDays, MapPin, SlidersHorizontal, TrendingUp } from 'lucide-react';
+import { Activity, CalendarDays, FileDown, MapPin, SlidersHorizontal, TrendingUp } from 'lucide-react';
 import { ForecastBandChart } from '@/src/components/ForecastBandChart';
 import { KpiCard } from '@/src/components/KpiCard';
 import { useProvinceDetail, useProvinces } from '@/src/hooks/useAQIData';
 import { cn, safeNumber } from '@/src/lib/utils';
+import { getProvinceReportUrl } from '@/src/services/apiClient';
 import type { EnvironmentalData, MetricKey } from '@/src/types';
 
 const ranges = [
@@ -88,7 +89,18 @@ export default function Analytics() {
     <div className="mx-auto max-w-[1600px] px-6 py-8">
       <div className="mb-8">
         <p className="mb-2 text-xs font-mono uppercase tracking-[0.28em] text-primary">Forecast analytics lab</p>
-        <h1 className="text-4xl font-black tracking-tight">Analytics</h1>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <h1 className="text-4xl font-black tracking-tight">Analytics</h1>
+          <a
+            href={getProvinceReportUrl(selectedProvinceId, rangeHours)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/20"
+          >
+            <FileDown className="h-4 w-4" />
+            Export province PDF
+          </a>
+        </div>
         {detailQuery.error && <p className="mt-2 text-xs font-mono text-warning">API fallback đang bật cho tỉnh này.</p>}
         {detailQuery.loading && <p className="mt-2 text-xs font-mono text-secondary">Đang tải history/forecast từ API...</p>}
       </div>
