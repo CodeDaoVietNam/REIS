@@ -9,7 +9,7 @@ export default function HealthAlerts() {
   const primaryAlert = anomalyQuery.data[0];
   const provinceName = primaryAlert?.province.name_vi ?? 'Việt Nam';
   const reading = primaryAlert?.reading;
-  const isAiAnomaly = Boolean(reading?.is_anomaly) || safeNumber(reading?.anomaly_score) >= 0.7;
+  const isAiAnomaly = primaryAlert?.event_type === 'ai_anomaly' || Boolean(reading?.is_anomaly) || safeNumber(reading?.anomaly_score) >= 0.7;
   const isAqiWarning = safeNumber(reading?.aqi) >= 150;
   const alertType = isAiAnomaly ? 'AI Anomaly Event' : isAqiWarning ? 'AQI Health Alert' : 'Monitoring Event';
   const headline = reading

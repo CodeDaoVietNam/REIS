@@ -7,8 +7,14 @@ import asyncpg
 from fastapi import APIRouter, Request
 
 from backend.api.db import get_pool
-from backend.api.inference_cache import get_cached_inference
-from backend.api.routes.provinces import _reading_to_dict, fetch_current_reading, province_meta
+from backend.api.inference_cache import get_cached_anomaly, get_cached_inference
+from backend.api.routes.provinces import (
+    ANOMALY_SCORE_THRESHOLD,
+    _reading_to_dict,
+    fetch_current_reading,
+    fetch_latest_readings,
+    province_meta,
+)
 from backend.config.constants import STRICT_ALERT_AQI
 from backend.insights.insight_cache import get_or_create_insight
 from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST
@@ -86,7 +92,7 @@ async def list_anomalies(request: Request) -> list[dict[str, Any]]:
             SELECT
                 time, province_id, aqi, pm2_5, pm10, no2, ozone,
                 temperature, humidity, wind_speed, precipitation, uv_index,
-                is_anomaly, anomaly_score, raw_json
+                is_anomaly, anomaly_score
             FROM env_readings
             WHERE time >= NOW() - INTERVAL '24 hours'
               AND (
@@ -105,6 +111,7 @@ async def list_anomalies(request: Request) -> list[dict[str, Any]]:
         return []
 
     anomalies: list[dict[str, Any]] = []
+    seen_provinces: set[int] = set()
     for row in rows:
         payload = _reading_to_dict(row)
         if payload is None:
@@ -113,5 +120,41 @@ async def list_anomalies(request: Request) -> list[dict[str, Any]]:
             meta = province_meta(int(payload["province_id"]))
         except Exception:
             meta = {"province_id": payload.get("province_id"), "name_vi": "Unknown"}
-        anomalies.append({"province": meta, "reading": payload})
+        seen_provinces.add(int(payload["province_id"]))
+        anomalies.append({"province": meta, "reading": payload, "event_type": "aqi_or_persisted_anomaly"})
+
+    try:
+        latest = await fetch_latest_readings(pool)
+    except Exception as exc:
+        logger.warning("Latest-reading anomaly enrichment skipped: %s", exc)
+        latest = {}
+
+    for province_id, payload in latest.items():
+        if province_id in seen_provinces:
+            continue
+        try:
+            anomaly, _source = await get_cached_anomaly(province_id)
+        except Exception as exc:
+            logger.debug("Anomaly enrichment skipped for province %s: %s", province_id, exc)
+            continue
+
+        is_ai_event = (
+            bool(anomaly.get("strict_alert"))
+            or anomaly.get("label") not in (None, "NORMAL")
+            or float(anomaly.get("score") or 0) >= ANOMALY_SCORE_THRESHOLD
+        )
+        if not is_ai_event:
+            continue
+
+        enriched = {**payload}
+        enriched["anomaly_score"] = float(anomaly.get("score") or 0)
+        enriched["is_anomaly"] = True
+        anomalies.append(
+            {
+                "province": province_meta(province_id),
+                "reading": enriched,
+                "event_type": "ai_anomaly",
+            }
+        )
+
     return anomalies

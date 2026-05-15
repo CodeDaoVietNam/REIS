@@ -26,6 +26,10 @@ export default function Dashboard() {
   const selectedAqi = safeNumber(selectedCurrent.aqi);
   const selectedAnomalyScore = safeNumber(detailQuery.data.anomaly.score, safeNumber(selectedCurrent.anomaly_score));
   const selectedStrictAlert = detailQuery.data.anomaly.strict_alert || detailQuery.data.anomaly.label !== 'NORMAL';
+  const hasLiveWebSocketData = Boolean(liveSummaries.length);
+  const isUsingFallback = sourceIsMock(provincesQuery.source, summaryQuery.source, hasLiveWebSocketData);
+  const hasModelAnomalyScore = detailQuery.source === 'api' && detailQuery.data.inference_source !== 'default';
+  const selectedAnomalyScoreDisplay = hasModelAnomalyScore ? selectedAnomalyScore.toFixed(2) : 'N/A';
   const sourceLabel = liveSummaries.length
     ? 'LIVE WS/API'
     : provincesQuery.source === 'api' && summaryQuery.source === 'api'
@@ -55,7 +59,7 @@ export default function Dashboard() {
             </span>
             <span>Cập nhật: {new Date(latestTime).toLocaleString('vi-VN')}</span>
           </div>
-          {(provincesQuery.error || summaryQuery.error) && (
+          {isUsingFallback && (provincesQuery.error || summaryQuery.error) && (
             <p className="mt-2 text-xs font-mono text-warning">API chưa sẵn sàng, UI đang dùng fallback an toàn.</p>
           )}
           <p className="mt-2 max-w-3xl text-xs text-on-surface-variant">
@@ -146,12 +150,16 @@ export default function Dashboard() {
         <InfoStrip
           icon={<Brain className="h-5 w-5" />}
           label={selectedStrictAlert ? 'Anomaly score - alert' : 'Anomaly score - normal'}
-          value={selectedAnomalyScore.toFixed(2)}
+          value={selectedAnomalyScoreDisplay}
         />
         <InfoStrip icon={<Radio className="h-5 w-5" />} label="Nguồn realtime" value={realtime.error ? 'WS fallback' : 'WS/API active'} />
       </div>
     </div>
   );
+}
+
+function sourceIsMock(provinceSource: string, summarySource: string, hasLiveWebSocketData: boolean): boolean {
+  return !hasLiveWebSocketData && (provinceSource !== 'api' || summarySource !== 'api');
 }
 
 function InfoStrip({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {

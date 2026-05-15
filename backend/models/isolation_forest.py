@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -65,14 +66,17 @@ def train(
     return {"model": model, "scaler": scaler, "config": cfg}
 
 
+@lru_cache(maxsize=4)
 def load_model(model_path: Path | str = MODEL_PATH):
     return joblib.load(model_path)
 
 
+@lru_cache(maxsize=4)
 def load_scaler(scaler_path: Path | str = SCALER_PATH):
     return joblib.load(scaler_path)
 
 
+@lru_cache(maxsize=4)
 def load_config(metadata_path: Path | str = METADATA_PATH) -> IsolationForestConfig:
     data = json.loads(Path(metadata_path).read_text())
     return IsolationForestConfig(**data)

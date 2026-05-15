@@ -28,6 +28,8 @@ export default function NationalMap() {
     : provinceQuery.source === 'api'
       ? 'LIVE API'
       : 'MOCK FALLBACK';
+  const hasLiveWebSocketData = Boolean(liveQuery.lastMessage?.provinces.length);
+  const isUsingFallback = provinceQuery.source !== 'api' && !hasLiveWebSocketData;
 
   return (
     <div className="mx-auto grid min-h-[calc(100vh-80px)] max-w-[1700px] grid-cols-1 gap-6 px-6 py-8 xl:grid-cols-[390px_1fr]">
@@ -43,7 +45,7 @@ export default function NationalMap() {
             <StatSmall label="Nguồn" value={sourceLabel} tone={sourceLabel.includes('MOCK') ? 'text-warning' : 'text-primary'} />
             <StatSmall label="Realtime" value={liveQuery.isConnected ? 'ON' : 'OFF'} tone={liveQuery.isConnected ? 'text-primary' : 'text-warning'} />
           </div>
-          {provinceQuery.error && (
+          {isUsingFallback && provinceQuery.error && (
             <p className="mt-4 text-xs font-mono text-warning">API chưa sẵn sàng, map đang dùng fallback có nhãn rõ.</p>
           )}
         </section>

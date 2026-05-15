@@ -54,6 +54,7 @@ export default function Analytics() {
   const activeRange = ranges.find((range) => range.hours === rangeHours) ?? ranges[1];
   const anomalyScore = safeNumber(detailQuery.data.anomaly.score, safeNumber(current.anomaly_score));
   const isAiAnomaly = detailQuery.data.anomaly.strict_alert || detailQuery.data.anomaly.label !== 'NORMAL';
+  const hasModelAnomalyScore = detailQuery.source === 'api' && detailQuery.data.inference_source !== 'default';
 
   const topProvinces = useMemo(
     () => provinceQuery.data
@@ -142,7 +143,7 @@ export default function Analytics() {
       >
         <KpiCard label={`${metricLabels[metric]} hiện tại`} value={formatMetric(current, metric)} icon={<Activity className="h-5 w-5" />} />
         <KpiCard label="AQI hiện tại" value={Math.round(current.aqi)} suffix="AQI" tone={current.aqi > 150 ? 'text-error' : 'text-primary'} />
-        <KpiCard label="AI anomaly score" value={anomalyScore.toFixed(2)} tone={isAiAnomaly ? 'text-error' : 'text-secondary'} />
+        <KpiCard label="AI anomaly score" value={hasModelAnomalyScore ? anomalyScore.toFixed(2) : 'N/A'} tone={isAiAnomaly ? 'text-error' : 'text-secondary'} />
         <KpiCard label="Khoảng dữ liệu" value={activeRange.label} icon={<TrendingUp className="h-5 w-5" />} tone="text-on-surface" />
       </motion.div>
 

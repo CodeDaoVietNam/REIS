@@ -204,7 +204,7 @@ export function getMockProvinceDetail(provinceId: number): ProvinceDetail {
     current,
     history,
     anomaly: current.is_anomaly
-      ? { score: current.anomaly_score, label: 'ANOMALY', strict_alert: current.aqi >= 150 }
+      ? { score: current.anomaly_score ?? 0, label: 'ANOMALY', strict_alert: current.aqi >= 150 }
       : DEFAULT_ANOMALY,
     forecast: DEFAULT_FORECAST,
     data_source: 'fallback',

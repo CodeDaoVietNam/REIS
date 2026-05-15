@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -8,7 +9,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.api.db import get_pool
-from backend.api.inference_cache import get_cached_inference
+from backend.api.inference_cache import get_cached_anomaly, get_cached_inference
 from backend.config.constants import PROVINCES, PROVINCES_BY_ID
 from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST
 
@@ -19,6 +20,8 @@ router = APIRouter(tags=["provinces"])
 ALLOWED_COMPARE_METRICS = {"aqi", "pm2_5", "pm10", "temperature", "humidity", "wind_speed"}
 WARNING_AQI_THRESHOLD = 150
 ANOMALY_SCORE_THRESHOLD = 0.7
+ANOMALY_SUMMARY_CONCURRENCY = 8
+ANOMALY_SUMMARY_TIMEOUT_SECONDS = 8.0
 
 
 def province_meta(province_id: int) -> dict[str, Any]:
@@ -44,7 +47,11 @@ def _iso(value: Any) -> Any:
     return value
 
 
-def _reading_to_dict(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, Any] | None:
+def _reading_to_dict(
+    row: asyncpg.Record | dict[str, Any] | None,
+    *,
+    include_raw_json: bool = False,
+) -> dict[str, Any] | None:
     if row is None:
         return None
 
@@ -52,7 +59,7 @@ def _reading_to_dict(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
     temperature = data.get("temperature", data.get("temp"))
     precipitation = data.get("precipitation", data.get("rainfall"))
     ozone = data.get("ozone", data.get("o3"))
-    return {
+    payload = {
         "time": _iso(data.get("time")),
         "province_id": data.get("province_id"),
         "aqi": data.get("aqi"),
@@ -72,8 +79,10 @@ def _reading_to_dict(row: asyncpg.Record | dict[str, Any] | None) -> dict[str, A
         "uv_index": data.get("uv_index"),
         "is_anomaly": data.get("is_anomaly"),
         "anomaly_score": data.get("anomaly_score"),
-        "raw_json": data.get("raw_json") or {},
     }
+    if include_raw_json:
+        payload["raw_json"] = data.get("raw_json") or {}
+    return payload
 
 
 def _radar_from_reading(reading: dict[str, Any] | None) -> dict[str, float]:
@@ -89,6 +98,53 @@ def _radar_from_reading(reading: dict[str, Any] | None) -> dict[str, float]:
     }
 
 
+def _is_anomaly_payload_alert(anomaly: dict[str, Any]) -> bool:
+    return (
+        bool(anomaly.get("strict_alert"))
+        or anomaly.get("label") not in (None, "NORMAL")
+        or float(anomaly.get("score") or 0) >= ANOMALY_SCORE_THRESHOLD
+    )
+
+
+def _is_persisted_anomaly(reading: dict[str, Any]) -> bool:
+    return (
+        reading.get("is_anomaly") is True
+        or float(reading.get("anomaly_score") or 0) >= ANOMALY_SCORE_THRESHOLD
+    )
+
+
+async def _count_ai_anomalies(readings: list[dict[str, Any]]) -> int:
+    """Count AI anomalies using persisted flags plus anomaly-only cached inference."""
+    semaphore = asyncio.Semaphore(ANOMALY_SUMMARY_CONCURRENCY)
+
+    async def classify(reading: dict[str, Any]) -> bool:
+        if _is_persisted_anomaly(reading):
+            return True
+
+        province_id = reading.get("province_id")
+        if not isinstance(province_id, int):
+            return False
+
+        async with semaphore:
+            try:
+                anomaly, _source = await get_cached_anomaly(province_id)
+            except Exception as exc:
+                logger.debug("Summary anomaly inference skipped for province %s: %s", province_id, exc)
+                return False
+            return _is_anomaly_payload_alert(anomaly)
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*(classify(reading) for reading in readings)),
+            timeout=ANOMALY_SUMMARY_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Summary anomaly inference timed out; using persisted anomaly flags only.")
+        return sum(1 for row in readings if _is_persisted_anomaly(row))
+
+    return sum(1 for item in results if item)
+
+
 async def fetch_latest_readings(pool: asyncpg.Pool | None) -> dict[int, dict[str, Any]]:
     if pool is None:
         return {}
@@ -98,7 +154,7 @@ async def fetch_latest_readings(pool: asyncpg.Pool | None) -> dict[int, dict[str
         SELECT DISTINCT ON (province_id)
             time, province_id, aqi, pm2_5, pm10, no2, ozone,
             temperature, humidity, wind_speed, precipitation, uv_index,
-            is_anomaly, anomaly_score, raw_json
+            is_anomaly, anomaly_score
         FROM env_readings
         ORDER BY province_id, time DESC
         """
@@ -122,7 +178,7 @@ async def fetch_current_reading(
         SELECT
             time, province_id, aqi, pm2_5, pm10, no2, ozone,
             temperature, humidity, wind_speed, precipitation, uv_index,
-            is_anomaly, anomaly_score, raw_json
+            is_anomaly, anomaly_score
         FROM env_readings
         WHERE province_id = $1
         ORDER BY time DESC
@@ -146,7 +202,7 @@ async def fetch_history(
         SELECT
             time, province_id, aqi, pm2_5, pm10, no2, ozone,
             temperature, humidity, wind_speed, precipitation, uv_index,
-            is_anomaly, anomaly_score, raw_json
+            is_anomaly, anomaly_score
         FROM env_readings
         WHERE province_id = $1
           AND time >= NOW() - ($2 * INTERVAL '1 hour')
@@ -204,11 +260,19 @@ async def get_province_detail(
             logger.warning("Inference fallback for province %s: %s", province_id, exc)
             inference_source = "fallback"
 
+    anomaly = inference.get("anomaly", DEFAULT_ANOMALY)
+    if current is not None and inference_source != "default":
+        current = {
+            **current,
+            "anomaly_score": float(anomaly.get("score") or 0),
+            "is_anomaly": _is_anomaly_payload_alert(anomaly),
+        }
+
     return {
         "province": meta,
         "current": current,
         "history": history,
-        "anomaly": inference.get("anomaly", DEFAULT_ANOMALY),
+        "anomaly": anomaly,
         "forecast": inference.get("forecast", DEFAULT_FORECAST),
         "data_source": "db" if current is not None else "fallback",
         "inference_source": inference_source,
@@ -242,11 +306,7 @@ async def get_summary(request: Request) -> dict[str, Any]:
     aqi_values = [float(row["aqi"]) for row in readings if row.get("aqi") is not None]
     pm25_values = [float(row["pm2_5"]) for row in readings if row.get("pm2_5") is not None]
     warning_count = sum(1 for row in readings if float(row.get("aqi") or 0) >= WARNING_AQI_THRESHOLD)
-    anomaly_count = sum(
-        1
-        for row in readings
-        if row.get("is_anomaly") is True or float(row.get("anomaly_score") or 0) >= ANOMALY_SCORE_THRESHOLD
-    )
+    anomaly_count = await _count_ai_anomalies(readings)
     latest_time = max((row.get("time") for row in readings if row.get("time")), default=None)
     aqi_warning_count = warning_count
     ai_anomaly_count = anomaly_count
@@ -294,13 +354,18 @@ async def compare_provinces(
             current = None
             history = []
 
-        inference = {"anomaly": DEFAULT_ANOMALY}
+        anomaly = DEFAULT_ANOMALY
         if current is not None:
             try:
-                inference, _source = await get_cached_inference(province_id)
+                anomaly, _source = await get_cached_anomaly(province_id)
             except Exception as exc:
                 logger.warning("Compare inference fallback for province %s: %s", province_id, exc)
-        anomaly = inference.get("anomaly", DEFAULT_ANOMALY)
+        if current is not None:
+            current = {
+                **current,
+                "anomaly_score": float(anomaly.get("score") or 0),
+                "is_anomaly": _is_anomaly_payload_alert(anomaly),
+            }
 
         response_items.append(
             {

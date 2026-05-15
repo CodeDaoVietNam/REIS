@@ -15,7 +15,7 @@ export interface EnvironmentalData {
   no2: number;
   ozone: number;
   uv_index: number;
-  anomaly_score: number;
+  anomaly_score: number | null;
   is_anomaly: boolean;
   raw_json?: Record<string, unknown>;
 }
@@ -128,6 +128,7 @@ export interface CompareResponse {
 export interface AnomalyRecord {
   province: ProvinceMeta;
   reading: EnvironmentalData;
+  event_type?: 'aqi_or_persisted_anomaly' | 'ai_anomaly' | string;
 }
 
 export interface AIAdvice {

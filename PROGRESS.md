@@ -13,7 +13,7 @@ Stage 2A: ML Models           ████████████████�
 Stage 2B: Insights (LLM)      ███████████████░░░  ~80%  ✅ Prompt/cache/client + API route
 Stage 2C: API & WebSocket     ████████████████░░  ~82%  ✅ Contract cleanup + inference cache
 Stage 2D: Frontend             █████████████████░  ~88%  ✅ Demo-ready UX cleanup
-Stage 2E: Airflow MLOps       ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
+Stage 2E: Airflow MLOps       ██░░░░░░░░░░░░░░░░  ~10%  📝 Skeleton docs ready
 Stage 2F: Notebooks (EDA)     █████████████████░  ~90%  ✅ EDA notebooks completed
 Stage 2G: Tools (Simulator)   ░░░░░░░░░░░░░░░░░░  0%   ⏸️  Pending
 ```
@@ -306,11 +306,22 @@ curl -I http://localhost:3000/
 
 ---
 
-## ⏳ STAGE 2E — Airflow MLOps (CHƯA LÀM)
+## 📝 STAGE 2E — Airflow MLOps (SKELETON DOCS)
 
 | File | Mô tả |
 |------|-------|
 | `backend/airflow/dags/weekly_retrain.py` | DAG: extract → feature → train → evaluate → compare → hotswap |
+| `docs/mlops_airflow_skeleton.md` | Skeleton design: DAG tasks, Input → Process → Output, contracts, acceptance criteria |
+
+### Trạng thái hiện tại
+
+```
+✅ Đã có skeleton docs để thuyết trình/giao việc
+✅ Đã xác định DAG contract: extract → validate → feature → train → evaluate → compare → report
+⏳ Chưa implement `weekly_retrain.py`
+⏳ Chưa chạy Airflow DAG thật
+⏳ Chưa có MLflow registry promotion/hotswap tự động
+```
 
 ---
 

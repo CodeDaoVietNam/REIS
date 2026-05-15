@@ -111,6 +111,7 @@ zookeeper-data/
 docs/REIS_Stage1_2_Docs.docx   # Remove from git if sensitive
 docs/REIS_Project_Plan.docx
 docs/*
+!docs/*.md
 
 # ── Test ───────────────────────────────────────────────────────────
 .pytest_cache/

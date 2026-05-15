@@ -50,6 +50,16 @@ function toNumber(value: unknown, fallback = 0): number {
   return fallback;
 }
 
+function toNullableNumber(value: unknown, fallback: number | null = null): number | null {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
 function normalizeReading(
   reading: Partial<EnvironmentalData> | null | undefined,
   province: ProvinceMeta,
@@ -76,7 +86,7 @@ function normalizeReading(
     no2: toNumber(sourceRecord.no2, fallback?.no2 ?? 0),
     ozone: toNumber(sourceRecord.ozone ?? sourceRecord.o3, fallback?.ozone ?? 0),
     uv_index: toNumber(sourceRecord.uv_index, fallback?.uv_index ?? 0),
-    anomaly_score: toNumber(sourceRecord.anomaly_score, fallback?.anomaly_score ?? 0),
+    anomaly_score: toNullableNumber(sourceRecord.anomaly_score, fallback?.anomaly_score ?? null),
     is_anomaly: Boolean(sourceRecord.is_anomaly ?? fallback?.is_anomaly ?? false),
     raw_json: sourceRecord.raw_json ?? fallback?.raw_json ?? {},
   };
