@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     OPENAI_MODEL:   str = "gpt-4o-mini"
     INSIGHT_CACHE_TTL_SECONDS: int = 3600
     INFERENCE_CACHE_TTL_SECONDS: int = 600
+    LOG_LEVEL: str = "INFO"
+    LOG_JSON: bool = False
     CORS_ORIGINS: str = (
         "http://localhost:3000,"
         "http://localhost:3001,"

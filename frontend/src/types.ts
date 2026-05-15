@@ -128,7 +128,10 @@ export interface CompareResponse {
 export interface AnomalyRecord {
   province: ProvinceMeta;
   reading: EnvironmentalData;
-  event_type?: 'aqi_or_persisted_anomaly' | 'ai_anomaly' | string;
+  event_type?: 'aqi_warning' | 'ai_anomaly' | 'combined' | 'aqi_or_persisted_anomaly' | string;
+  severity?: 'moderate' | 'high' | 'critical' | string;
+  reason?: string;
+  recommendations?: string[];
 }
 
 export interface AIAdvice {

@@ -131,7 +131,10 @@ async def test_invalid_province_returns_404():
 
 @pytest.mark.asyncio
 async def test_forecast_route_uses_prediction_contract(monkeypatch: pytest.MonkeyPatch):
-    async def fake_get_cached_inference(province_id: int) -> tuple[dict[str, Any], str]:
+    async def fake_get_cached_inference(
+        province_id: int,
+        **_kwargs: Any,
+    ) -> tuple[dict[str, Any], str]:
         assert province_id == 1
         return (
             {
@@ -166,7 +169,7 @@ async def test_inference_cache_reuses_result(monkeypatch: pytest.MonkeyPatch):
 
     calls = 0
 
-    async def fake_run_inference(province_id: int) -> dict[str, Any]:
+    async def fake_run_inference(province_id: int, **_kwargs: Any) -> dict[str, Any]:
         nonlocal calls
         calls += 1
         return {
@@ -219,3 +222,51 @@ async def test_anomalies_returns_empty_list_without_db():
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_alert_record_contract_classifies_combined_event():
+    from backend.api.routes.insights import _build_alert_record
+
+    record = _build_alert_record(
+        {"province_id": 1, "name_vi": "Ha Noi"},
+        {
+            "time": "2026-05-15T10:00:00+00:00",
+            "province_id": 1,
+            "aqi": 210,
+            "pm2_5": 95,
+            "is_anomaly": True,
+            "anomaly_score": 0.92,
+        },
+    )
+
+    assert record["event_type"] == "combined"
+    assert record["severity"] == "critical"
+    assert record["reason"]
+    assert record["recommendations"]
+
+
+@pytest.mark.asyncio
+async def test_enrich_readings_with_anomaly_attaches_model_score(monkeypatch: pytest.MonkeyPatch):
+    from backend.api.routes import provinces
+
+    async def fake_get_cached_anomaly(province_id: int, **_kwargs: Any) -> tuple[dict[str, Any], str]:
+        assert province_id == 1
+        return {"score": 0.82, "label": "ANOMALY", "strict_alert": True}, "model"
+
+    monkeypatch.setattr(provinces, "get_cached_anomaly", fake_get_cached_anomaly)
+
+    enriched = await provinces.enrich_readings_with_anomaly(
+        {
+            1: {
+                "province_id": 1,
+                "aqi": 120,
+                "pm2_5": 35,
+                "anomaly_score": None,
+                "is_anomaly": False,
+            }
+        }
+    )
+
+    assert enriched[1]["anomaly_score"] == 0.82
+    assert enriched[1]["is_anomaly"] is True
+    assert enriched[1]["anomaly_source"] == "model"

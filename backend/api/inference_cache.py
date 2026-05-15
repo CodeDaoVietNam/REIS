@@ -26,7 +26,12 @@ def clear_inference_cache() -> None:
     _anomaly_cache.clear()
 
 
-async def get_cached_inference(province_id: int, *, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
+async def get_cached_inference(
+    province_id: int,
+    *,
+    force_refresh: bool = False,
+    pool: Any | None = None,
+) -> tuple[dict[str, Any], str]:
     """Return shared province inference with a short demo-friendly TTL."""
     now = time.monotonic()
     cached = _cache.get(province_id)
@@ -40,7 +45,7 @@ async def get_cached_inference(province_id: int, *, force_refresh: bool = False)
         if not force_refresh and cached and cached.expires_at > now:
             return cached.value, "cache"
 
-        inference = await run_inference(province_id)
+        inference = await run_inference(province_id, pool=pool)
         ttl = max(1, settings.INFERENCE_CACHE_TTL_SECONDS)
         _cache[province_id] = CachedInference(value=inference, expires_at=now + ttl)
         if "anomaly" in inference:
@@ -48,7 +53,12 @@ async def get_cached_inference(province_id: int, *, force_refresh: bool = False)
         return inference, "model"
 
 
-async def get_cached_anomaly(province_id: int, *, force_refresh: bool = False) -> tuple[dict[str, Any], str]:
+async def get_cached_anomaly(
+    province_id: int,
+    *,
+    force_refresh: bool = False,
+    pool: Any | None = None,
+) -> tuple[dict[str, Any], str]:
     """Return anomaly-only inference without triggering forecast/LSTM work."""
     now = time.monotonic()
     full_cached = _cache.get(province_id)
@@ -70,7 +80,7 @@ async def get_cached_anomaly(province_id: int, *, force_refresh: bool = False) -
         if not force_refresh and cached and cached.expires_at > now:
             return cached.value, "cache"
 
-        anomaly = await predict_anomaly(province_id)
+        anomaly = await predict_anomaly(province_id, pool=pool)
         ttl = max(1, settings.INFERENCE_CACHE_TTL_SECONDS)
         _anomaly_cache[province_id] = CachedInference(value=anomaly, expires_at=now + ttl)
         return anomaly, "model"

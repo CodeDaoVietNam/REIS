@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.api.db import get_pool
 from backend.api.inference_cache import get_cached_anomaly, get_cached_inference
+from backend.api.rate_limit import general_limiter
 from backend.config.constants import PROVINCES, PROVINCES_BY_ID
 from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST
 
@@ -113,7 +114,10 @@ def _is_persisted_anomaly(reading: dict[str, Any]) -> bool:
     )
 
 
-async def _count_ai_anomalies(readings: list[dict[str, Any]]) -> int:
+async def _count_ai_anomalies(
+    readings: list[dict[str, Any]],
+    pool: asyncpg.Pool | None = None,
+) -> int:
     """Count AI anomalies using persisted flags plus anomaly-only cached inference."""
     semaphore = asyncio.Semaphore(ANOMALY_SUMMARY_CONCURRENCY)
 
@@ -127,7 +131,7 @@ async def _count_ai_anomalies(readings: list[dict[str, Any]]) -> int:
 
         async with semaphore:
             try:
-                anomaly, _source = await get_cached_anomaly(province_id)
+                anomaly, _source = await get_cached_anomaly(province_id, pool=pool)
             except Exception as exc:
                 logger.debug("Summary anomaly inference skipped for province %s: %s", province_id, exc)
                 return False
@@ -143,6 +147,50 @@ async def _count_ai_anomalies(readings: list[dict[str, Any]]) -> int:
         return sum(1 for row in readings if _is_persisted_anomaly(row))
 
     return sum(1 for item in results if item)
+
+
+def _merge_anomaly_into_reading(
+    reading: dict[str, Any],
+    anomaly: dict[str, Any],
+    source: str,
+) -> dict[str, Any]:
+    return {
+        **reading,
+        "anomaly_score": float(anomaly.get("score") or 0),
+        "is_anomaly": _is_anomaly_payload_alert(anomaly),
+        "anomaly_source": source,
+    }
+
+
+async def enrich_readings_with_anomaly(
+    readings: dict[int, dict[str, Any]],
+    pool: asyncpg.Pool | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Attach cached model anomaly scores to latest readings for API/UI consistency."""
+    if not readings:
+        return readings
+
+    semaphore = asyncio.Semaphore(ANOMALY_SUMMARY_CONCURRENCY)
+
+    async def enrich_item(province_id: int, reading: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        async with semaphore:
+            try:
+                anomaly, source = await get_cached_anomaly(province_id, pool=pool)
+            except Exception as exc:
+                logger.debug("Province anomaly enrichment skipped for province %s: %s", province_id, exc)
+                return province_id, reading
+            return province_id, _merge_anomaly_into_reading(reading, anomaly, source)
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*(enrich_item(province_id, reading) for province_id, reading in readings.items())),
+            timeout=ANOMALY_SUMMARY_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Province anomaly enrichment timed out; using persisted anomaly fields only.")
+        return readings
+
+    return dict(results)
 
 
 async def fetch_latest_readings(pool: asyncpg.Pool | None) -> dict[int, dict[str, Any]]:
@@ -216,6 +264,7 @@ async def fetch_history(
 
 async def build_province_summaries(pool: asyncpg.Pool | None) -> list[dict[str, Any]]:
     latest_by_id = await fetch_latest_readings(pool)
+    latest_by_id = await enrich_readings_with_anomaly(latest_by_id, pool=pool)
     return [
         {
             **province_meta(province[0]),
@@ -227,6 +276,7 @@ async def build_province_summaries(pool: asyncpg.Pool | None) -> list[dict[str, 
 
 @router.get("/api/provinces")
 async def list_provinces(request: Request) -> list[dict[str, Any]]:
+    general_limiter.check(request)
     try:
         return await build_province_summaries(get_pool(request))
     except Exception as exc:
@@ -240,6 +290,7 @@ async def get_province_detail(
     request: Request,
     hours: int = Query(default=48, ge=1, le=24 * 60),
 ) -> dict[str, Any]:
+    general_limiter.check(request)
     meta = province_meta(province_id)
     pool = get_pool(request)
 
@@ -255,7 +306,7 @@ async def get_province_detail(
     inference_source = "default"
     if current is not None:
         try:
-            inference, inference_source = await get_cached_inference(province_id)
+            inference, inference_source = await get_cached_inference(province_id, pool=pool)
         except Exception as exc:
             logger.warning("Inference fallback for province %s: %s", province_id, exc)
             inference_source = "fallback"
@@ -282,6 +333,7 @@ async def get_province_detail(
 
 @router.get("/api/summary")
 async def get_summary(request: Request) -> dict[str, Any]:
+    general_limiter.check(request)
     pool = get_pool(request)
     try:
         latest = await fetch_latest_readings(pool)
@@ -289,6 +341,7 @@ async def get_summary(request: Request) -> dict[str, Any]:
         logger.warning("Failed to build summary from DB: %s", exc)
         latest = {}
 
+    latest = await enrich_readings_with_anomaly(latest, pool=pool)
     readings = [reading for reading in latest.values() if reading is not None]
     province_count = len(PROVINCES)
     if not readings:
@@ -306,7 +359,7 @@ async def get_summary(request: Request) -> dict[str, Any]:
     aqi_values = [float(row["aqi"]) for row in readings if row.get("aqi") is not None]
     pm25_values = [float(row["pm2_5"]) for row in readings if row.get("pm2_5") is not None]
     warning_count = sum(1 for row in readings if float(row.get("aqi") or 0) >= WARNING_AQI_THRESHOLD)
-    anomaly_count = await _count_ai_anomalies(readings)
+    anomaly_count = sum(1 for row in readings if _is_persisted_anomaly(row))
     latest_time = max((row.get("time") for row in readings if row.get("time")), default=None)
     aqi_warning_count = warning_count
     ai_anomaly_count = anomaly_count
@@ -330,6 +383,7 @@ async def compare_provinces(
     days: int = Query(default=7, ge=1, le=60),
     metric: str = Query(default="aqi"),
 ) -> dict[str, Any]:
+    general_limiter.check(request)
     if metric not in ALLOWED_COMPARE_METRICS:
         raise HTTPException(status_code=400, detail=f"Unsupported metric: {metric}")
 
@@ -357,7 +411,7 @@ async def compare_provinces(
         anomaly = DEFAULT_ANOMALY
         if current is not None:
             try:
-                anomaly, _source = await get_cached_anomaly(province_id)
+                anomaly, _source = await get_cached_anomaly(province_id, pool=pool)
             except Exception as exc:
                 logger.warning("Compare inference fallback for province %s: %s", province_id, exc)
         if current is not None:

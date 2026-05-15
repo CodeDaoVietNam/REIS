@@ -21,8 +21,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from backend.api import db, websocket
 from backend.api.routes import forecast, insights, provinces
+from backend.api.ws_manager import manager as ws_manager
+from backend.config.logging_config import setup_logging
 from backend.config.settings import settings
 
+setup_logging(level=settings.LOG_LEVEL, json_format=settings.LOG_JSON)
 logger = logging.getLogger(__name__)
 
 API_VERSION = "0.1.0"
@@ -41,7 +44,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize lightweight API resources without requiring external infra."""
     logger.info("Starting REIS API")
     await db.open_pool(app)
+    ws_manager.start(app)  # Start single WS broadcast loop
     yield
+    await ws_manager.stop()  # Stop broadcast + close all WS connections
     await db.close_pool(app)
     logger.info("Shutting down REIS API")
 

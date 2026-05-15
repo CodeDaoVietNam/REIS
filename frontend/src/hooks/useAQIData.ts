@@ -155,6 +155,8 @@ function normalizeDetail(payload: ApiProvinceDetail, provinceId: number): Provin
   };
 }
 
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 export function useProvinces(): QueryState<ProvinceSummary[]> {
   const [state, setState] = useState<QueryState<ProvinceSummary[]>>({
     data: getMockProvinceSummaries(),
@@ -190,8 +192,11 @@ export function useProvinces(): QueryState<ProvinceSummary[]> {
     }
 
     load();
+    // Auto-refresh every 5 minutes to keep data current
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -236,8 +241,10 @@ export function useProvinceDetail(provinceId: number, hours = 48): QueryState<Pr
     }
 
     load();
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [provinceId, hours]);
 
@@ -292,8 +299,10 @@ export function useInsight(provinceId: number): QueryState<InsightPayload> {
     }
 
     load();
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [provinceId]);
 
@@ -344,8 +353,10 @@ export function useAnomalies(): QueryState<AnomalyRecord[]> {
     }
 
     load();
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -382,8 +393,11 @@ export function useSummary(): QueryState<SummaryPayload> {
     }
 
     load();
+    // Auto-refresh every 5 minutes
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -433,8 +447,10 @@ export function useCompare(
     }
 
     load();
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [key, days, metric]);
 

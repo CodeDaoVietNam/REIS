@@ -12,6 +12,7 @@ import Analytics from '@/src/pages/Analytics';
 import Compare from '@/src/pages/Compare';
 import NationalMap from '@/src/pages/NationPage';
 import HealthAlerts from '@/src/pages/HealthAlert';
+import About from '@/src/pages/About';
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/compare" element={<Compare />} />
               <Route path="/map" element={<NationalMap />} />
               <Route path="/alerts" element={<HealthAlerts />} />
+              <Route path="/about" element={<About />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </ErrorBoundary>

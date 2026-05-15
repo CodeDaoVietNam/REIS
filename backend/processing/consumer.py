@@ -55,6 +55,12 @@ DB_USER     = settings.DB_USER
 DB_PASSWORD = settings.DB_PASSWORD
 DB_NAME     = settings.DB_NAME
 
+# Redis config
+REDIS_HOST = settings.REDIS_HOST
+REDIS_PORT = settings.REDIS_PORT
+DLQ_KEY = "dlq:env.readings.raw"
+LATEST_KEY_PREFIX = "latest:province:"
+
 # Batch settings
 BATCH_SIZE        = 63    # 1 full cycle = 63 provinces
 BATCH_TIMEOUT_SEC = 10    # Flush sau 10s dù batch chưa đầy
@@ -91,6 +97,7 @@ INSERT_SQL = """
 
 # Global pool instance (MUST be defined BEFORE _get_pool function)
 _pool: asyncpg.Pool | None = None
+_redis = None
 
 
 async def _get_pool() -> asyncpg.Pool:
@@ -111,6 +118,60 @@ async def _get_pool() -> asyncpg.Pool:
             DB_HOST, DB_PORT, DB_NAME,
         )
     return _pool
+
+
+async def _get_redis():
+    """Create (or return cached) Redis connection."""
+    global _redis
+    if _redis is None:
+        try:
+            import redis.asyncio as aioredis
+            _redis = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+            await _redis.ping()
+            logger.info("Redis connected — %s:%s", REDIS_HOST, REDIS_PORT)
+        except Exception as exc:
+            logger.warning("Redis unavailable (non-fatal): %s", exc)
+            _redis = None
+    return _redis
+
+
+async def _push_to_dlq(raw_message: str, error: str) -> None:
+    """Push failed message to Redis Dead Letter Queue for audit."""
+    redis = await _get_redis()
+    if redis is None:
+        return
+    try:
+        import json as _json
+        entry = _json.dumps({"raw": raw_message[:2000], "error": str(error), "ts": datetime.now(timezone.utc).isoformat()})
+        await redis.lpush(DLQ_KEY, entry)
+        await redis.ltrim(DLQ_KEY, 0, 999)  # Keep last 1000 entries
+    except Exception as exc:
+        logger.debug("DLQ push failed (non-fatal): %s", exc)
+
+
+async def _update_latest_state(batch: list[tuple]) -> None:
+    """Update Redis latest:province:{id} for fast Dashboard reads."""
+    redis = await _get_redis()
+    if redis is None:
+        return
+    try:
+        pipe = redis.pipeline()
+        for row in batch:
+            province_id = row[1]  # $2 in INSERT_SQL
+            if province_id is None:
+                continue
+            latest = {
+                "province_id": province_id,
+                "aqi": row[8],      # $9
+                "pm2_5": row[6],    # $7
+                "temperature": row[2],  # $3
+                "time": row[0].isoformat() if row[0] else None,
+            }
+            import json as _json
+            pipe.set(f"{LATEST_KEY_PREFIX}{province_id}", _json.dumps(latest), ex=3600)
+        await pipe.execute()
+    except Exception as exc:
+        logger.debug("Redis latest state update failed (non-fatal): %s", exc)
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -181,6 +242,9 @@ async def _flush_batch(
     async with pool.acquire() as conn:
         await conn.executemany(INSERT_SQL, batch)
 
+    # Update Redis latest state cache (non-blocking, non-fatal)
+    await _update_latest_state(batch)
+
     # Commit offset SAU KHI DB insert thành công
     await consumer.commit()
     logger.info("Flushed %d records to TimescaleDB — offset committed", len(batch))
@@ -240,11 +304,13 @@ async def consume() -> None:
                             raise ValueError(f"Expected dict, got {type(data)}")
 
                     except (json.JSONDecodeError, ValueError) as exc:
-                        # Mark for commit after any valid records from this poll are flushed.
+                        # Push to Redis DLQ for audit, then skip
                         logger.warning(
                             "Skipping unparseable message at offset %s: %s",
                             msg.offset, exc,
                         )
+                        raw_str = raw if isinstance(raw, str) else str(raw)[:500]
+                        await _push_to_dlq(raw_str, str(exc))
                         saw_unparseable = True
                         continue
 

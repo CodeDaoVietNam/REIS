@@ -48,47 +48,56 @@ async def fetch_recent_readings(
     province_id: int,
     hours: int = 48,
     db_config: DBConfig | None = None,
+    pool: Any | None = None,
 ) -> pd.DataFrame:
-    """Query recent readings for one province from TimescaleDB."""
+    """Query recent readings for one province from TimescaleDB.
+
+    Args:
+        pool: Optional asyncpg.Pool (preferred — reuses connections).
+              If None, creates a temporary connection (legacy behavior).
+    """
     import asyncpg
 
-    cfg = db_config or DBConfig()
-    conn = await asyncpg.connect(
-        host=cfg.host,
-        port=cfg.port,
-        user=cfg.user,
-        password=cfg.password,
-        database=cfg.database,
-    )
-    try:
-        rows = await conn.fetch(
-            """
-            SELECT
-                r.time,
-                r.province_id,
-                p.name_vi AS province_name,
-                p.region,
-                r.temperature,
-                r.humidity,
-                r.wind_speed,
-                r.precipitation,
-                r.pm2_5,
-                r.pm10,
-                r.aqi,
-                r.no2,
-                r.ozone,
-                r.uv_index
-            FROM env_readings r
-            LEFT JOIN provinces p ON p.id = r.province_id
-            WHERE r.province_id = $1
-              AND r.time >= NOW() - ($2 || ' hours')::interval
-            ORDER BY r.time
-            """,
-            province_id,
-            str(hours),
+    query = """
+        SELECT
+            r.time,
+            r.province_id,
+            p.name_vi AS province_name,
+            p.region,
+            r.temperature,
+            r.humidity,
+            r.wind_speed,
+            r.precipitation,
+            r.pm2_5,
+            r.pm10,
+            r.aqi,
+            r.no2,
+            r.ozone,
+            r.uv_index
+        FROM env_readings r
+        LEFT JOIN provinces p ON p.id = r.province_id
+        WHERE r.province_id = $1
+          AND r.time >= NOW() - ($2 || ' hours')::interval
+        ORDER BY r.time
+    """
+
+    if pool is not None:
+        # Use shared pool — no connection overhead
+        rows = await pool.fetch(query, province_id, str(hours))
+    else:
+        # Fallback: create temporary connection (for CLI/notebook usage)
+        cfg = db_config or DBConfig()
+        conn = await asyncpg.connect(
+            host=cfg.host,
+            port=cfg.port,
+            user=cfg.user,
+            password=cfg.password,
+            database=cfg.database,
         )
-    finally:
-        await conn.close()
+        try:
+            rows = await conn.fetch(query, province_id, str(hours))
+        finally:
+            await conn.close()
 
     if not rows:
         return pd.DataFrame()
@@ -123,11 +132,12 @@ async def predict_anomaly(
     province_id: int,
     db_config: DBConfig | None = None,
     raw_df: pd.DataFrame | None = None,
+    pool: Any | None = None,
 ) -> dict[str, Any]:
     """Predict anomaly score from recent province history."""
     try:
         if raw_df is None:
-            raw_df = await fetch_recent_readings(province_id, hours=48, db_config=db_config)
+            raw_df = await fetch_recent_readings(province_id, hours=48, db_config=db_config, pool=pool)
         if raw_df.empty or not _ensure_anomaly_artifacts_exist():
             logger.warning("Anomaly model unavailable or no data for province_id=%s", province_id)
             return dict(DEFAULT_ANOMALY)
@@ -164,11 +174,12 @@ async def predict_forecast(
     province_id: int,
     db_config: DBConfig | None = None,
     raw_df: pd.DataFrame | None = None,
+    pool: Any | None = None,
 ) -> dict[str, Any]:
     """Forecast future AQI using LSTM, fallback to Prophet, else defaults."""
     try:
         if raw_df is None:
-            raw_df = await fetch_recent_readings(province_id, hours=72, db_config=db_config)
+            raw_df = await fetch_recent_readings(province_id, hours=72, db_config=db_config, pool=pool)
         if raw_df.empty:
             logger.warning("No recent readings for province_id=%s", province_id)
             return dict(DEFAULT_FORECAST)
@@ -181,10 +192,12 @@ async def predict_forecast(
             if len(history_df) >= HISTORY_WINDOW:
                 history = history_df[FEATURE_COLUMNS].to_numpy(dtype=np.float32)
                 preds = np.asarray(lstm_model.predict(history), dtype=np.float32)
+                recent_std = float(history_df["aqi"].tail(HISTORY_WINDOW).std() or 0)
+                band = float(np.clip(max(5.0, recent_std * 0.35), 5.0, 30.0))
                 return {
                     "values": np.round(preds, 4).tolist(),
-                    "lower": np.round(np.clip(preds - 5, 0, 500), 4).tolist(),
-                    "upper": np.round(np.clip(preds + 5, 0, 500), 4).tolist(),
+                    "lower": np.round(np.clip(preds - band, 0, 500), 4).tolist(),
+                    "upper": np.round(np.clip(preds + band, 0, 500), 4).tolist(),
                     "model_family": "lstm",
                 }
 
@@ -215,11 +228,12 @@ async def predict_forecast(
 async def run_inference(
     province_id: int,
     db_config: DBConfig | None = None,
+    pool: Any | None = None,
 ) -> dict[str, Any]:
     """Run anomaly and forecast inference concurrently."""
-    raw_df = await fetch_recent_readings(province_id, hours=72, db_config=db_config)
-    anomaly_task = predict_anomaly(province_id, db_config=db_config, raw_df=raw_df)
-    forecast_task = predict_forecast(province_id, db_config=db_config, raw_df=raw_df)
+    raw_df = await fetch_recent_readings(province_id, hours=72, db_config=db_config, pool=pool)
+    anomaly_task = predict_anomaly(province_id, db_config=db_config, raw_df=raw_df, pool=pool)
+    forecast_task = predict_forecast(province_id, db_config=db_config, raw_df=raw_df, pool=pool)
     anomaly, forecast = await asyncio.gather(anomaly_task, forecast_task)
     return {
         "province_id": province_id,

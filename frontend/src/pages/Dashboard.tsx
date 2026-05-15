@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, AlertTriangle, Brain, Gauge, Radio, ShieldAlert, Wind } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Activity, AlertTriangle, Brain, Gauge, Radio, ShieldAlert, Wind, X } from 'lucide-react';
 import { AqiGauge } from '@/src/components/AqiGauge';
 import { ForecastBandChart } from '@/src/components/ForecastBandChart';
 import { InsightCard } from '@/src/components/InsightCard';
@@ -8,10 +9,15 @@ import { KpiCard } from '@/src/components/KpiCard';
 import { VietnamLiveMap } from '@/src/components/VietnamLiveMap';
 import { useInsight, useProvinceDetail, useProvinces, useSummary } from '@/src/hooks/useAQIData';
 import { useWebSocket } from '@/src/hooks/useWebSocket';
-import { formatFixed, getAQILabel, safeNumber } from '@/src/lib/utils';
+import { cn, formatFixed, getAQIColor, getAQILabel, safeNumber } from '@/src/lib/utils';
+import type { ProvinceSummary } from '@/src/types';
+
+type DrilldownType = 'aqi' | 'anomaly' | null;
 
 export default function Dashboard() {
-  const [selectedProvinceId, setSelectedProvinceId] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedProvinceId = normalizeProvinceId(searchParams.get('province')) ?? 1;
+  const [drilldown, setDrilldown] = useState<DrilldownType>(null);
   const provincesQuery = useProvinces();
   const summaryQuery = useSummary();
   const detailQuery = useProvinceDetail(selectedProvinceId, 48);
@@ -38,11 +44,28 @@ export default function Dashboard() {
   const realtimeLabel = realtime.isConnected ? 'Realtime connected' : 'Realtime polling/fallback';
   const aqiWarningCount = safeNumber(summaryQuery.data.aqi_warning_count ?? summaryQuery.data.warning_count);
   const aiAnomalyCount = safeNumber(summaryQuery.data.ai_anomaly_count ?? summaryQuery.data.anomaly_count);
+  const aqiWarnings = useMemo(
+    () => summaries
+      .filter((province) => safeNumber(province.current?.aqi) >= 150)
+      .sort((left, right) => safeNumber(right.current?.aqi) - safeNumber(left.current?.aqi)),
+    [summaries],
+  );
+  const aiAnomalies = useMemo(
+    () => summaries
+      .filter((province) => Boolean(province.current?.is_anomaly) || safeNumber(province.current?.anomaly_score) >= 0.7)
+      .sort((left, right) => safeNumber(right.current?.anomaly_score) - safeNumber(left.current?.anomaly_score)),
+    [summaries],
+  );
+  const activeDrilldownItems = drilldown === 'aqi' ? aqiWarnings : drilldown === 'anomaly' ? aiAnomalies : [];
 
   const provinceOptions = useMemo(
     () => summaries.map((province) => ({ id: province.province_id, name: province.name_vi })),
     [summaries],
   );
+
+  function selectProvince(provinceId: number) {
+    setSearchParams({ province: String(provinceId) });
+  }
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-8">
@@ -71,7 +94,7 @@ export default function Dashboard() {
           Tỉnh đang xem
           <select
             value={selectedProvinceId}
-            onChange={(event) => setSelectedProvinceId(Number(event.target.value))}
+            onChange={(event) => selectProvince(Number(event.target.value))}
             className="min-w-64 rounded-2xl border border-outline-variant bg-surface-container-high px-4 py-3 text-base font-bold normal-case tracking-normal text-on-surface outline-none transition focus:border-primary"
           >
             {provinceOptions.map((province) => (
@@ -108,6 +131,8 @@ export default function Dashboard() {
           suffix={`/ ${summaryQuery.data.province_count}`}
           icon={<ShieldAlert className="h-5 w-5" />}
           tone="text-warning"
+          onClick={() => setDrilldown((current) => current === 'aqi' ? null : 'aqi')}
+          hint="Click để xem tỉnh"
         />
         <KpiCard
           label="AI anomalies"
@@ -115,15 +140,30 @@ export default function Dashboard() {
           suffix={`/ ${summaryQuery.data.province_count}`}
           icon={<AlertTriangle className="h-5 w-5" />}
           tone={aiAnomalyCount > 0 ? 'text-error' : 'text-primary'}
+          onClick={() => setDrilldown((current) => current === 'anomaly' ? null : 'anomaly')}
+          hint="Click để xem tỉnh"
         />
       </motion.div>
+
+      {drilldown && (
+        <DrilldownPanel
+          type={drilldown}
+          items={activeDrilldownItems}
+          selectedProvinceId={selectedProvinceId}
+          onClose={() => setDrilldown(null)}
+          onSelectProvince={(provinceId) => {
+            selectProvince(provinceId);
+            setDrilldown(null);
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
         <div className="xl:col-span-8">
           <VietnamLiveMap
             summaries={summaries}
             selectedProvinceId={selectedProvinceId}
-            onSelectProvince={setSelectedProvinceId}
+            onSelectProvince={selectProvince}
             compact
           />
         </div>
@@ -155,6 +195,98 @@ export default function Dashboard() {
         <InfoStrip icon={<Radio className="h-5 w-5" />} label="Nguồn realtime" value={realtime.error ? 'WS fallback' : 'WS/API active'} />
       </div>
     </div>
+  );
+}
+
+function normalizeProvinceId(value: string | null) {
+  const provinceId = Number(value);
+  return Number.isInteger(provinceId) && provinceId >= 1 && provinceId <= 63 ? provinceId : null;
+}
+
+function DrilldownPanel({
+  type,
+  items,
+  selectedProvinceId,
+  onClose,
+  onSelectProvince,
+}: {
+  type: Exclude<DrilldownType, null>;
+  items: ProvinceSummary[];
+  selectedProvinceId: number;
+  onClose: () => void;
+  onSelectProvince: (provinceId: number) => void;
+}) {
+  const title = type === 'aqi' ? 'Danh sách tỉnh AQI warning' : 'Danh sách tỉnh AI anomaly';
+  const description = type === 'aqi'
+    ? 'Các tỉnh có AQI từ 150 trở lên, cần chú ý sức khỏe.'
+    : 'Các tỉnh được model đánh dấu bất thường hoặc score vượt ngưỡng.';
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card mb-6 border border-primary/30 p-5"
+    >
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-black">{title}</h2>
+          <p className="mt-1 text-sm text-on-surface-variant">{description}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-surface-container-highest p-2 text-on-surface-variant transition hover:text-on-surface"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <p className="rounded-2xl border border-outline-variant/20 bg-surface-container-low p-4 text-sm text-on-surface-variant">
+          Chưa có tỉnh nào thuộc nhóm này trong dữ liệu hiện tại.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {items.slice(0, 18).map((province) => {
+            const aqi = safeNumber(province.current?.aqi);
+            const anomalyScore = province.current?.anomaly_score;
+            const isSelected = province.province_id === selectedProvinceId;
+            return (
+              <button
+                key={province.province_id}
+                type="button"
+                onClick={() => onSelectProvince(province.province_id)}
+                className={cn(
+                  'rounded-2xl border p-4 text-left transition hover:border-primary/60 hover:bg-surface-container-high',
+                  isSelected ? 'border-primary bg-primary/10' : 'border-outline-variant/25 bg-surface-container-low',
+                )}
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-black">{province.name_vi}</p>
+                    <p className="text-xs font-mono uppercase tracking-wider text-on-surface-variant">{province.region}</p>
+                  </div>
+                  <span className={cn('font-mono text-lg font-black', getAQIColor(aqi))}>{Math.round(aqi)}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <MetricPill label="PM2.5" value={formatFixed(province.current?.pm2_5, 1)} />
+                  <MetricPill label="AQI" value={getAQILabel(aqi)} />
+                  <MetricPill label="AI" value={anomalyScore == null ? 'N/A' : safeNumber(anomalyScore).toFixed(2)} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </motion.section>
+  );
+}
+
+function MetricPill({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="rounded-xl bg-surface-container-highest/60 px-2 py-2 text-center">
+      <span className="block font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">{label}</span>
+      <span className="font-bold">{value}</span>
+    </span>
   );
 }
 

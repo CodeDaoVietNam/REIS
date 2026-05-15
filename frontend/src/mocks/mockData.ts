@@ -245,10 +245,24 @@ export function getMockAnomalies(): AnomalyRecord[] {
   return getMockProvinceSummaries()
     .filter((summary) => summary.current?.is_anomaly)
     .slice(0, 8)
-    .map((summary) => ({
-      province: summary,
-      reading: summary.current as EnvironmentalData,
-    }));
+    .map((summary) => {
+      const reading = summary.current as EnvironmentalData;
+      const isCombined = reading.aqi >= 150 && Boolean(reading.is_anomaly);
+      const severity = reading.aqi >= 200 || (reading.anomaly_score ?? 0) >= 0.9 ? 'critical' : 'high';
+      return {
+        province: summary,
+        reading,
+        event_type: isCombined ? 'combined' : reading.aqi >= 150 ? 'aqi_warning' : 'ai_anomaly',
+        severity,
+        reason: isCombined
+          ? `AQI ${reading.aqi} cao va mock model danh dau pattern bat thuong.`
+          : `AQI ${reading.aqi} tai ${summary.name_vi} dang vuot nguong demo.`,
+        recommendations: [
+          'Demo fallback: dung de giu UI co du lieu khi backend tat.',
+          'Khi API san sang, uu tien doc danh sach canh bao that tu /api/anomalies.',
+        ],
+      };
+    });
 }
 
 export function getMockSummary(): SummaryPayload {
