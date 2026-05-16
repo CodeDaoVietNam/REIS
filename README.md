@@ -1,6 +1,6 @@
 # REIS — Realtime Environmental Intelligence System
 
-> REIS turns raw environmental signals into real-time monitoring, short-term forecasts, anomaly detection, natural-language insights, and exportable PDF reports for Vietnam's 63 provinces.
+> Hệ thống giám sát môi trường theo thời gian gần thực cho 63 tỉnh/thành Việt Nam: thu thập dữ liệu, stream qua Kafka, lưu TimescaleDB, phát hiện bất thường, dự báo ngắn hạn, sinh insight và hiển thị trên dashboard frontend.
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green?logo=fastapi)](https://fastapi.tiangolo.com)
@@ -11,373 +11,283 @@
 
 ---
 
-## Table Of Contents
+## Giao Diện Hệ Thống
 
-- [1. Product Story](#1-product-story)
-- [2. What Is Working Now](#2-what-is-working-now)
-- [3. Architecture](#3-architecture)
-- [4. Feature Overview](#4-feature-overview)
-- [5. Repository Structure](#5-repository-structure)
-- [6. Quick Start](#6-quick-start)
-- [7. Realtime Data Pipeline](#7-realtime-data-pipeline)
-- [8. API Reference](#8-api-reference)
-- [9. Frontend Pages](#9-frontend-pages)
-- [10. AI And Insight Layer](#10-ai-and-insight-layer)
-- [11. PDF Reports](#11-pdf-reports)
-- [12. Testing And Verification](#12-testing-and-verification)
-- [13. Docker Services](#13-docker-services)
-- [14. Environment Variables](#14-environment-variables)
-- [15. Troubleshooting](#15-troubleshooting)
-- [16. Current Limitations](#16-current-limitations)
-- [17. Suggested Demo Narrative](#17-suggested-demo-narrative)
+REIS có frontend dạng command center: bản đồ AQI toàn quốc, KPI realtime, forecast, insight, cảnh báo và báo cáo PDF. Các ảnh dưới đây là ảnh chụp thật từ app local đang chạy với API/DB.
+
+![REIS Dashboard Live](docs/assets/screenshots/dashboard.png)
+
+| Bản đồ toàn quốc | Alert Center |
+|---|---|
+| ![REIS Map Live](docs/assets/screenshots/map.png) | ![REIS Alerts Live](docs/assets/screenshots/alerts.png) |
+
+| Analytics | Compare |
+|---|---|
+| ![REIS Analytics Live](docs/assets/screenshots/analytics.png) | ![REIS Compare Live](docs/assets/screenshots/compare.png) |
 
 ---
 
-## 1. Product Story
+## Mục Lục
 
-Most air-quality dashboards answer only one question: **what is the AQI right now?**
+- [1. REIS giải quyết vấn đề gì?](#1-reis-giải-quyết-vấn-đề-gì)
+- [2. Tính năng chính](#2-tính-năng-chính)
+- [3. Frontend có những trang nào?](#3-frontend-có-những-trang-nào)
+- [4. Kiến trúc hệ thống](#4-kiến-trúc-hệ-thống)
+- [5. Cách chạy project](#5-cách-chạy-project)
+- [6. API chính](#6-api-chính)
+- [7. PDF report](#7-pdf-report)
+- [8. Insight & Interpretation](#8-insight--interpretation)
+- [9. Test và kiểm tra](#9-test-và-kiểm-tra)
+- [10. Ghi chú vận hành](#10-ghi-chú-vận-hành)
 
-That is useful, but not enough. A realistic environmental intelligence system should also answer:
+---
 
-- Is the current reading normal or suspicious?
-- Which provinces are becoming unhealthy?
-- What may happen in the next 12 hours?
-- What should a user or operator do next?
-- Can the system produce a report instead of only showing a dashboard?
+## 1. REIS Giải Quyết Vấn Đề Gì?
 
-REIS is built around that loop:
+Các dashboard AQI thông thường thường chỉ trả lời câu hỏi:
 
 ```text
-Observe -> Validate -> Stream -> Store -> Analyze -> Explain -> Act
+Hiện tại AQI là bao nhiêu?
 ```
 
-The system collects weather and air-quality signals, streams them through Kafka, stores them in TimescaleDB, runs ML inference, generates LLM/template insights, serves everything through FastAPI/WebSocket, renders a React dashboard, and exports PDF reports.
+REIS đi xa hơn một bước. Hệ thống cố gắng trả lời:
 
----
+- Tỉnh nào đang có chất lượng không khí xấu?
+- Chỉ số hiện tại có bất thường so với pattern dữ liệu không?
+- 12 giờ tới AQI có xu hướng tăng hay giảm?
+- Dữ liệu có insight gì đáng chú ý?
+- Người dùng nên hành động như thế nào?
+- Có thể xuất báo cáo PDF để nộp/thuyết trình/chia sẻ không?
 
-## 2. What Is Working Now
-
-### Demo-ready core
-
-- Real data pipeline for 63 Vietnam provinces.
-- Open-Meteo collector and Kafka producer.
-- Kafka consumer writing to TimescaleDB `env_readings`.
-- Historical backfill script, default 50 days.
-- FastAPI REST routes and WebSocket live route.
-- React/Vite frontend with Dashboard, Analytics, Compare, Map, Alerts, About.
-- AQI warnings and AI anomalies are separated semantically.
-- EDA-backed Key Findings answer the course insight/interpretation rubric directly.
-- LSTM/Prophet-style forecast interface with confidence band.
-- Isolation Forest anomaly scoring through model artifacts.
-- Insight generation through Gemini/OpenAI when keys exist, with template fallback.
-- Redis-backed insight cache path.
-- PDF export for one province and multi-province comparison.
-- Backend and frontend tests/build commands are passing.
-
-### Still intentionally scoped
-
-- Airflow/MLOps is documented as a skeleton, not production-finished.
-- Telegram/email alert manager is planned, not part of the current demo-ready path.
-- `tools/simulator.py` is documented as a task, not fully implemented.
-- Authentication and production observability are not implemented.
-
----
-
-## 3. Architecture
+Luồng tư duy chính:
 
 ```text
-                                  External Data Sources
-                      Open-Meteo Forecast API + Air Quality API
-                                             |
-                                             v
-┌────────────────────────────────────────────────────────────────────────────┐
-│ L1. Ingestion                                                              │
-│ collector.py -> validator.py -> producer.py -> scheduler.py                │
-└────────────────────────────────────────────────────────────────────────────┘
-                                             |
-                                             v
-┌────────────────────────────────────────────────────────────────────────────┐
-│ L2. Streaming                                                              │
-│ Kafka topic: env.readings.raw                                               │
-│ Redis: DLQ/cache helpers                                                    │
-└────────────────────────────────────────────────────────────────────────────┘
-                                             |
-                                             v
-┌────────────────────────────────────────────────────────────────────────────┐
-│ L3. Storage                                                                │
-│ TimescaleDB hypertable: env_readings                                        │
-│ Unique key: province_id + time                                              │
-└────────────────────────────────────────────────────────────────────────────┘
-                                             |
-                                             v
-┌────────────────────────────────────────────────────────────────────────────┐
-│ L4. Intelligence                                                           │
-│ Isolation Forest anomaly score                                              │
-│ LSTM/Prophet forecast interface                                             │
-│ Gemini/OpenAI/template insight engine                                       │
-│ Inference cache + insight cache                                             │
-└────────────────────────────────────────────────────────────────────────────┘
-                                             |
-                                             v
-┌────────────────────────────────────────────────────────────────────────────┐
-│ L5. Delivery                                                               │
-│ FastAPI REST + WebSocket + PDF reports                                      │
-│ React frontend: Dashboard, Analytics, Compare, Map, Alerts, About          │
-└────────────────────────────────────────────────────────────────────────────┘
+Observe -> Stream -> Store -> Analyze -> Explain -> Act
+```
+
+---
+
+## 2. Tính Năng Chính
+
+| Nhóm | Trạng thái | Mô tả |
+|---|---:|---|
+| Thu thập dữ liệu | Hoàn thành | Lấy dữ liệu weather + air quality từ Open-Meteo cho 63 tỉnh/thành |
+| Streaming | Hoàn thành | Producer đẩy dữ liệu vào Kafka, consumer ghi vào TimescaleDB |
+| Backfill lịch sử | Hoàn thành | Script backfill mặc định 50 ngày, giúp chart/forecast có đủ dữ liệu |
+| Backend API | Hoàn thành | FastAPI REST, WebSocket, Swagger docs |
+| Frontend | Hoàn thành | React/Vite với Dashboard, Analytics, Compare, Map, Alerts, About |
+| Forecast | Hoàn thành mức demo | Trả forecast 12h với confidence band |
+| Anomaly detection | Hoàn thành mức demo | Isolation Forest phát hiện pattern bất thường |
+| LLM Insight | Hoàn thành mức demo | Gemini/OpenAI nếu có key, fallback template nếu không có |
+| Key Findings | Hoàn thành | Tổng hợp insight từ EDA notebook + live DB |
+| PDF report | Hoàn thành | Xuất báo cáo tỉnh, so sánh nhiều tỉnh, báo cáo insight toàn quốc |
+| MLOps/Airflow | Skeleton | Có tài liệu/skeleton, chưa phải production pipeline |
+
+---
+
+## 3. Frontend Có Những Trang Nào?
+
+Frontend là phần chính để demo hệ thống. Các trang được thiết kế để người xem hiểu được dữ liệu từ nhiều góc nhìn khác nhau.
+
+| Trang | Route | Vai trò |
+|---|---|---|
+| Landing | `/` | Giới thiệu sản phẩm và dẫn vào dashboard |
+| Dashboard | `/dashboard` | Trung tâm điều hành: KPI, bản đồ, gauge, forecast, insight, Key Findings |
+| Analytics | `/analytics` | Phân tích một tỉnh theo khoảng thời gian và metric |
+| Compare | `/compare` | So sánh tối đa 3 tỉnh bằng chart, radar card và heatmap table |
+| Map | `/map` | Bản đồ toàn quốc với marker AQI theo tỉnh |
+| Alerts | `/alerts` | Alert Center: tách rõ AQI warnings và AI anomalies |
+| About | `/about` | Giải thích kiến trúc, tech stack và luồng hệ thống |
+
+### Dashboard
+
+Dashboard là màn hình quan trọng nhất khi thuyết trình:
+
+- KPI tổng quan: AQI trung bình, PM2.5 trung bình, số tỉnh cảnh báo, số AI anomaly.
+- Bản đồ Việt Nam hiển thị trạng thái tỉnh/thành.
+- Panel bên phải hiển thị tỉnh đang chọn: AQI gauge, history + forecast, insight.
+- Section `Key Findings` trả lời trực tiếp phần insight/interpretation trong tiêu chí đồ án.
+- Nút export `National Insight PDF`.
+
+### Analytics
+
+Trang Analytics dùng khi muốn phân tích sâu một tỉnh:
+
+- Chọn tỉnh.
+- Chọn khoảng dữ liệu: 24h, 7 ngày, 30 ngày.
+- Chọn metric: AQI, PM2.5, Temperature.
+- Hiển thị history + forecast confidence band.
+- Có thể export province PDF.
+
+### Compare
+
+Trang Compare dùng để kể câu chuyện so sánh vùng/tỉnh:
+
+- So sánh Hà Nội, TP.HCM, Đà Nẵng hoặc tỉnh tùy chọn.
+- Multi-line trend chart.
+- Province compare cards.
+- Radar profile.
+- Heatmap table cho AQI, PM2.5, temperature, wind speed, anomaly score.
+- Có thể export compare PDF.
+
+### Alerts
+
+Trang Alerts tách rõ hai loại cảnh báo:
+
+- `AQI Health Warnings`: cảnh báo sức khỏe khi AQI vượt ngưỡng.
+- `AI Anomaly Events`: model phát hiện pattern bất thường, có thể xảy ra cả khi AQI chưa quá cao.
+
+Điểm quan trọng: AQI warning và AI anomaly không giống nhau. Một tỉnh có thể AQI cao nhưng không bất thường theo model, hoặc có pattern bất thường dù AQI chưa vượt ngưỡng đỏ.
+
+---
+
+## 4. Kiến Trúc Hệ Thống
+
+```text
+Open-Meteo API
+    |
+    v
+collector.py -> validator.py -> producer.py
+    |
+    v
+Kafka topic: env.readings.raw
+    |
+    v
+consumer.py
+    |
+    v
+TimescaleDB env_readings
+    |
+    v
+FastAPI REST + WebSocket + PDF Report
+    |
+    v
+React Frontend
 ```
 
 ### Input -> Process -> Output
 
 | Stage | Input | Process | Output |
 |---|---|---|---|
-| Ingestion | Open-Meteo weather/AQ responses | Async fetch, normalize, validate | Valid environmental readings |
-| Streaming | Valid readings | Kafka publish, DLQ on failure | Durable streaming messages |
-| Processing | Kafka messages | Batch consume, parse time, insert | TimescaleDB rows |
-| ML | Latest/history readings | Feature engineering, anomaly/forecast inference | Score, label, forecast values |
-| Insight | Current reading + anomaly + forecast | Gemini/OpenAI/template + cache | Human-readable advice |
-| API | DB + model/cache | FastAPI routes, WebSocket broadcast, PDF generation | JSON, WS payloads, PDF |
-| Frontend | API/WS data | UI state, charts, map, fallback handling | Demo-ready dashboard |
+| Ingestion | Open-Meteo weather/AQ data | Fetch async, normalize, validate | Environmental readings |
+| Streaming | Valid readings | Publish Kafka, DLQ nếu lỗi | Message stream |
+| Processing | Kafka messages | Batch consume, insert DB | TimescaleDB rows |
+| ML | Current/history readings | Feature engineering, anomaly, forecast | Score, label, forecast |
+| Insight | Reading + anomaly + forecast | Gemini/OpenAI/template + cache | Human-readable insight |
+| API | DB + model/cache | FastAPI routes, WebSocket, PDF | JSON, WS payload, PDF |
+| Frontend | API/WS data | Chart, map, fallback, state handling | Dashboard demo-ready |
 
 ---
 
-## 4. Feature Overview
+## 5. Cách Chạy Project
 
-| Area | Status | Notes |
-|---|---:|---|
-| 63-province metadata | Done | Source of truth in `backend/config/constants.py` |
-| Open-Meteo collection | Done | Weather + air quality |
-| Kafka producer/consumer | Done | Consumer writes to TimescaleDB |
-| Historical backfill | Done | Idempotent 50-day default |
-| FastAPI health/docs | Done | `/api/health`, `/docs` |
-| Province/summary APIs | Done | `/api/provinces`, `/api/province/{id}`, `/api/summary` |
-| Forecast API | Done | `/api/forecast/{id}` |
-| Insight API | Done | `/api/insights/{id}` |
-| Alerts API | Done | `/api/anomalies` with `event_type`, `severity`, `reason` |
-| Compare API | Done | `/api/compare` |
-| PDF reports | Done | Province PDF + compare PDF |
-| WebSocket | Done | `/ws/live`, shared broadcast manager |
-| Frontend dashboard | Done | KPI, map, gauge, forecast, insight |
-| Analytics page | Done | Province/range/metric filters, PDF export |
-| Compare page | Done | Multi-province comparison, PDF export |
-| Alert Center | Done | AQI warnings vs AI anomalies |
-| MLOps/Airflow | Skeleton | Documentation only for deadline scope |
-| Simulator tool | Planned | See `docs/simulator_task.md` |
-
----
-
-## 5. Repository Structure
-
-```text
-reis/
-├── backend/
-│   ├── api/
-│   │   ├── main.py                  # FastAPI app, CORS, lifespan
-│   │   ├── db.py                    # asyncpg pool helper
-│   │   ├── inference_cache.py       # short TTL inference cache
-│   │   ├── rate_limit.py            # simple API rate limiter
-│   │   ├── websocket.py             # WS route
-│   │   ├── ws_manager.py            # shared WS broadcast loop
-│   │   └── routes/
-│   │       ├── provinces.py         # summary/provinces/detail/compare
-│   │       ├── forecast.py          # forecast endpoint
-│   │       ├── insights.py          # insights + anomalies
-│   │       └── reports.py           # PDF report endpoints
-│   ├── config/
-│   │   ├── constants.py             # 63 provinces, thresholds, features
-│   │   ├── settings.py              # env-driven settings
-│   │   └── logging_config.py        # text/JSON logging setup
-│   ├── ingestion/
-│   │   ├── collector.py             # Open-Meteo fetcher
-│   │   ├── validator.py             # Pydantic validation
-│   │   ├── producer.py              # Kafka producer + Redis DLQ path
-│   │   └── scheduler.py             # collection scheduler
-│   ├── processing/
-│   │   ├── consumer.py              # Kafka -> TimescaleDB
-│   │   └── feature_engineer.py      # lag/rolling/time features
-│   ├── models/
-│   │   ├── isolation_forest.py      # anomaly scoring
-│   │   ├── lstm_model.py            # LSTM forecast wrapper
-│   │   ├── prophet_model.py         # Prophet fallback wrapper
-│   │   ├── predict.py               # unified async inference
-│   │   └── artifacts/               # trained model artifacts
-│   ├── insights/
-│   │   ├── prompt_builder.py        # prompt construction
-│   │   ├── llm_client.py            # Gemini/OpenAI/template fallback
-│   │   └── insight_cache.py         # Redis cache for insight text
-│   ├── scripts/
-│   │   ├── setup_db.py              # schema/hypertable setup
-│   │   ├── backfill_historical_data.py
-│   │   ├── train_models.py
-│   │   └── test_insight_generation.py
-│   ├── notebooks/                   # EDA, backfill, model comparison
-│   └── tests/                       # backend tests
-├── frontend/
-│   ├── src/
-│   │   ├── components/              # cards, charts, map, insight UI
-│   │   ├── hooks/                   # useAQIData, useWebSocket
-│   │   ├── pages/                   # Dashboard, Analytics, Compare, Map, Alerts
-│   │   ├── services/apiClient.ts    # REST URL helpers
-│   │   └── types.ts                 # API/frontend contracts
-│   └── package.json
-├── docs/
-│   ├── adr/                         # architecture decisions
-│   ├── presentation_script.md       # presentation script
-│   ├── mlops_airflow_skeleton.md
-│   └── simulator_task.md
-├── docker-compose.yml
-├── PROGRESS.md
-└── README.md
-```
-
----
-
-## 6. Quick Start
-
-The commands below assume the local conda env used during development:
+Các lệnh dưới đây giả định môi trường Python:
 
 ```bash
 /home/ductien/miniconda3/envs/reis/bin/python
 ```
 
-If your Python path is different, replace it with your own `python`.
+Nếu máy khác đường dẫn, thay bằng Python env tương ứng.
 
-### 6.1. Clone
+### 5.1. Cài dependency
 
-```bash
-git clone https://github.com/CodeDaoVietNam/REIS.git
-cd REIS
-```
-
-### 6.2. Install backend dependencies
+Backend:
 
 ```bash
 cd /home/ductien/Documents/reis
 /home/ductien/miniconda3/envs/reis/bin/python -m pip install -r backend/requirements.txt
 ```
 
-### 6.3. Install frontend dependencies
+Frontend:
 
 ```bash
 cd /home/ductien/Documents/reis/frontend
 npm install
 ```
 
-### 6.4. Start minimal infrastructure
+### 5.2. Bật infra tối thiểu
 
 ```bash
 cd /home/ductien/Documents/reis
-docker compose up -d zookeeper kafka redis timescaledb
-docker compose ps
+docker-compose up -d zookeeper kafka redis timescaledb
+docker-compose ps
 ```
 
-Optional UI tools:
+Kafka UI là optional:
 
 ```bash
-docker compose up -d kafka-ui pgadmin
+docker-compose up -d kafka-ui
 ```
 
-If `kafka-ui` is unhealthy but Kafka itself is healthy, the core pipeline can still run. Kafka UI is only an optional visual tool.
+Mở Kafka UI:
 
-### 6.5. Setup database schema
+```text
+http://localhost:8090
+```
+
+### 5.3. Setup database
 
 ```bash
 cd /home/ductien/Documents/reis/backend
 /home/ductien/miniconda3/envs/reis/bin/python scripts/setup_db.py
 ```
 
-Verify tables:
+Kiểm tra bảng:
 
 ```bash
 cd /home/ductien/Documents/reis
-docker compose exec timescaledb psql -U reis -d reis_db -c "\dt"
-docker compose exec timescaledb psql -U reis -d reis_db -c "select count(*) from env_readings;"
+docker-compose exec timescaledb psql -U reis -d reis_db -c "\dt"
+docker-compose exec timescaledb psql -U reis -d reis_db -c "select count(*) from env_readings;"
 ```
 
-### 6.6. Backfill historical data
+### 5.4. Backfill dữ liệu lịch sử
 
-Recommended before demo because charts, forecast, anomaly, and insights need enough history:
+Nên chạy trước demo để biểu đồ/forecast/insight có đủ dữ liệu:
 
 ```bash
 cd /home/ductien/Documents/reis/backend
 /home/ductien/miniconda3/envs/reis/bin/python scripts/backfill_historical_data.py --days 50
 ```
 
-Verify coverage:
+### 5.5. Chạy realtime pipeline liên tục
 
-```bash
-cd /home/ductien/Documents/reis
-docker compose exec timescaledb psql -U reis -d reis_db -c "
-select province_id, count(*), min(time), max(time)
-from env_readings
-group by province_id
-order by province_id;
-"
-```
-
-### 6.7. Start realtime consumer
-
-Open Terminal 1:
+Terminal 1: consumer Kafka -> TimescaleDB
 
 ```bash
 cd /home/ductien/Documents/reis/backend
+
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
 DB_HOST=localhost DB_PORT=5432 DB_USER=reis DB_PASSWORD=reis_secret DB_NAME=reis_db \
 /home/ductien/miniconda3/envs/reis/bin/python processing/consumer.py
 ```
 
-### 6.8. Publish one realtime collection cycle
-
-Open Terminal 2:
+Terminal 2: scheduler producer chạy liên tục mỗi 15 phút
 
 ```bash
 cd /home/ductien/Documents/reis/backend
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 REDIS_HOST=localhost REDIS_PORT=6379 \
-/home/ductien/miniconda3/envs/reis/bin/python - <<'PY'
-import asyncio
-from ingestion.scheduler import collect_and_publish
-from ingestion.producer import close as close_producer
 
-async def main():
-    await collect_and_publish()
-    await close_producer()
-
-asyncio.run(main())
-PY
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+REDIS_HOST=localhost REDIS_PORT=6379 \
+/home/ductien/miniconda3/envs/reis/bin/python ingestion/scheduler.py
 ```
 
-Verify latest rows:
+`ingestion/scheduler.py` sẽ chạy một vòng ngay khi start, sau đó lặp lại mỗi 15 phút.
 
-```bash
-cd /home/ductien/Documents/reis
-docker compose exec timescaledb psql -U reis -d reis_db -c "
-select count(*) as total_rows, max(time) as latest_time
-from env_readings;
-"
-docker compose exec timescaledb psql -U reis -d reis_db -c "
-select province_id, aqi, pm2_5, temperature, time
-from env_readings
-order by time desc
-limit 10;
-"
-```
+### 5.6. Chạy FastAPI
 
-### 6.9. Start FastAPI
-
-Open Terminal 3:
+Terminal 3:
 
 ```bash
 cd /home/ductien/Documents/reis/backend
 /home/ductien/miniconda3/envs/reis/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Smoke test:
+Kiểm tra:
 
 ```bash
 curl http://localhost:8000/api/health
 curl http://localhost:8000/api/summary
 curl "http://localhost:8000/api/province/1?hours=168"
-curl "http://localhost:8000/api/compare?province_ids=1,2,4&days=7&metric=aqi"
-curl http://localhost:8000/api/anomalies
 ```
 
 Swagger:
@@ -386,18 +296,19 @@ Swagger:
 http://localhost:8000/docs
 ```
 
-### 6.10. Start frontend
+### 5.7. Chạy frontend
 
-Open Terminal 4:
+Terminal 4:
 
 ```bash
 cd /home/ductien/Documents/reis/frontend
+
 VITE_API_URL=http://localhost:8000 \
 VITE_WS_URL=ws://localhost:8000/ws/live \
 npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
-Open:
+Mở frontend:
 
 ```text
 http://localhost:3000
@@ -405,296 +316,84 @@ http://localhost:3000
 
 ---
 
-## 7. Realtime Data Pipeline
+## 6. API Chính
 
-### Normal flow
-
-```text
-Open-Meteo
-  -> collector.py
-  -> validator.py
-  -> producer.py
-  -> Kafka
-  -> consumer.py
-  -> TimescaleDB env_readings
-  -> FastAPI
-  -> React dashboard
-```
-
-### Why Kafka?
-
-Kafka decouples data collection from database writing. If TimescaleDB is temporarily slow, producer-side collection can still publish messages and consumer-side processing can catch up later.
-
-### Why TimescaleDB?
-
-Environmental readings are time-series data. TimescaleDB gives PostgreSQL compatibility plus hypertables, indexes, and efficient time-window queries.
-
-### Why Redis?
-
-Redis is used for cache-oriented paths such as insight caching and DLQ/helper flows. It keeps expensive LLM calls and repeated inference paths under control.
-
----
-
-## 8. API Reference
-
-Interactive docs:
-
-```text
-http://localhost:8000/docs
-```
-
-### Core REST
-
-| Method | Endpoint | Purpose |
+| Method | Endpoint | Mục đích |
 |---|---|---|
-| `GET` | `/api/health` | Lightweight health check |
-| `GET` | `/api/summary` | National KPI summary |
-| `GET` | `/api/provinces` | 63 provinces with latest readings |
-| `GET` | `/api/province/{id}?hours=168` | Province detail, current, history, anomaly, forecast |
-| `GET` | `/api/forecast/{id}` | Forecast payload |
-| `GET` | `/api/insights/{id}` | Natural-language insight |
-| `GET` | `/api/insight-summary` | EDA-backed national Key Findings |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/summary` | KPI toàn quốc |
+| `GET` | `/api/provinces` | 63 tỉnh + latest reading |
+| `GET` | `/api/province/{id}?hours=168` | Detail một tỉnh |
+| `GET` | `/api/forecast/{id}` | Forecast 12h |
+| `GET` | `/api/insights/{id}` | Insight theo tỉnh |
+| `GET` | `/api/insight-summary` | Key Findings từ EDA + live DB |
 | `GET` | `/api/anomalies` | Alert Center events |
-| `GET` | `/api/compare?province_ids=1,2,4&days=7&metric=aqi` | Multi-province comparison |
-
-### PDF reports
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/report/province/{id}.pdf?hours=48` | Export one-province report |
-| `GET` | `/api/report/compare.pdf?province_ids=1,2,4&days=7&metric=aqi` | Export multi-province comparison report |
-| `GET` | `/api/report/insights.pdf` | Export national Insight & Interpretation report |
-
-### WebSocket
-
-| Protocol | Endpoint | Purpose |
-|---|---|---|
-| `WS` | `/ws/live` | Live province summary updates |
-
-### Important response semantics
-
-`AQI warnings` and `AI anomalies` are intentionally different:
-
-- `AQI warning`: health threshold event, generally `AQI >= 150`.
-- `AI anomaly`: model-detected unusual pattern based on anomaly score/label.
-- `combined`: both AQI health threshold and AI anomaly are true.
-
-`/api/anomalies` returns alert records with:
-
-```json
-{
-  "province": {},
-  "reading": {},
-  "event_type": "aqi_warning | ai_anomaly | combined",
-  "severity": "moderate | high | critical",
-  "reason": "...",
-  "recommendations": ["..."]
-}
-```
+| `GET` | `/api/compare?province_ids=1,2,4&days=7&metric=aqi` | So sánh nhiều tỉnh |
+| `WS` | `/ws/live` | Realtime update cho frontend |
 
 ---
 
-## 9. Frontend Pages
+## 7. PDF Report
 
-| Page | Route | Purpose |
+REIS hỗ trợ 3 loại report:
+
+| Report | Endpoint | Dùng ở frontend |
 |---|---|---|
-| Landing | `/` | Product overview and entry point |
-| Dashboard | `/dashboard` | National command center with KPI, map, gauge, forecast, insights |
-| Analytics | `/analytics` | Single-province analysis with filters and PDF export |
-| Compare | `/compare` | Multi-province comparison and PDF export |
-| Map | `/map` | National live AQI map |
-| Alerts | `/alerts` | Alert Center: AQI warnings vs AI anomalies |
-| About | `/about` | Architecture, tech stack, and system explanation |
+| Province report | `/api/report/province/{id}.pdf?hours=168` | Analytics |
+| Compare report | `/api/report/compare.pdf?province_ids=1,2,4&days=7&metric=aqi` | Compare |
+| National insight report | `/api/report/insights.pdf` | Dashboard Key Findings |
 
-### Header interactions
-
-- Search supports page/province lookup.
-- `Ctrl+K` focuses search.
-- Bell icon opens Alert Center.
-- Settings icon opens quick settings and system info.
-- Dashboard KPI cards for `AQI warnings` and `AI anomalies` are clickable drill-downs.
-- Dashboard includes `Key Findings`, a rubric-focused interpretation layer derived from EDA and live DB context.
-
-### Source labels
-
-The frontend explicitly labels data source:
-
-- `LIVE API`: REST data is available.
-- `LIVE WS/API`: WebSocket payload is active.
-- `MOCK FALLBACK`: backend unavailable, UI is using deterministic fallback data.
-
-This is important for demo honesty: fallback data keeps UI stable but must not be mistaken for realtime operational data.
-
----
-
-## 10. AI And Insight Layer
-
-### Anomaly detection
-
-- Main model: Isolation Forest.
-- Input: engineered AQI, pollutant, weather, lag, rolling, and delta features.
-- Output: normalized anomaly score and label.
-- UI displays `N/A` only when no model/inference score is available.
-- API enriches latest province readings with cached anomaly inference for consistent Dashboard/Alerts behavior.
-
-### Forecast
-
-- Forecast interface returns:
-
-```json
-{
-  "values": [],
-  "lower": [],
-  "upper": [],
-  "model_family": "..."
-}
-```
-
-- The frontend renders forecast confidence bands.
-- `lower` and `upper` should be interpreted as demo uncertainty bands unless replaced by a calibrated uncertainty method.
-
-### Insight generation
-
-Provider order:
-
-1. Gemini, if `GEMINI_API_KEY` exists.
-2. OpenAI fallback, if `OPENAI_API_KEY` exists.
-3. Template fallback, always available.
-
-Insight cache:
-
-- `INSIGHT_CACHE_TTL_SECONDS=3600` by default.
-- Helps avoid repeated paid LLM calls.
-- Good enough for demo where AQI changes at minute/hour cadence, not second cadence.
-
-### Key Findings from EDA
-
-REIS includes a separate `Key Findings` layer because the course rubric requires interpretation, not only visualization.
-
-It answers four questions explicitly:
-
-- `Main trend`: AQI has a daily/weekly rhythm and often increases around the evening window.
-- `Notable pattern`: the North, especially Hanoi and nearby provinces, forms a stronger pollution cluster than the South.
-- `Forecast / explanation`: AQI has temporal memory through lag features, so short-term forecasting is technically justified.
-- `Practical value`: users can plan outdoor activity, operators can prioritize regional warnings, and reports can explain why a chart matters.
-
-The API endpoint is:
-
-```bash
-curl "http://localhost:8000/api/insight-summary"
-```
-
-The response is hybrid:
-
-- `eda_live_hybrid`: EDA baseline enriched with current TimescaleDB metrics.
-- `eda_baseline`: safe fallback when DB is unavailable.
-
----
-
-## 11. PDF Reports
-
-REIS can export three report types from the backend.
-
-### One-province report
-
-Endpoint:
+Ví dụ:
 
 ```bash
 curl -o hanoi-report.pdf "http://localhost:8000/api/report/province/1.pdf?hours=168"
-```
-
-Frontend:
-
-```text
-Analytics -> Export province PDF
-```
-
-Included sections:
-
-- Executive Summary
-- AQI history chart
-- Current Reading
-- AI Anomaly Analysis
-- Forecast 12h
-- Province LLM/template insight
-- Insight & Interpretation
-- Historical Table
-
-### Multi-province compare report
-
-Endpoint:
-
-```bash
 curl -o compare-report.pdf "http://localhost:8000/api/report/compare.pdf?province_ids=1,2,4&days=7&metric=aqi"
-```
-
-Frontend:
-
-```text
-Compare -> Export compare PDF
-```
-
-Included sections:
-
-- Executive Comparison
-- Current AQI comparison chart
-- AQI/PM2.5/temperature/wind/anomaly score table
-- Radar metrics
-- Insight & Interpretation
-- Historical samples for each selected province
-
-### National insight report
-
-Endpoint:
-
-```bash
 curl -o national-insights.pdf "http://localhost:8000/api/report/insights.pdf"
 ```
 
-Frontend:
-
-```text
-Dashboard -> Key Findings -> Export insight PDF
-```
-
-Included sections:
-
-- Executive Interpretation
-- Key Findings from EDA
-- Regional AQI chart when live DB is available
-- Top polluted provinces chart when live DB is available
-- Rubric answer: Main Trend, Notable Pattern, Forecast / Explanation, Practical Value, Limitations
-
-### Implementation detail
-
-PDF generation uses `reportlab`, including backend-generated charts. It is intentionally backend-side so the frontend does not need to capture screenshots or expose report logic in the browser.
+PDF được sinh ở backend bằng `reportlab`, có bảng, biểu đồ và phần diễn giải insight.
 
 ---
 
-## 12. Testing And Verification
+## 8. Insight & Interpretation
 
-### Backend route/API tests
+Đây là phần quan trọng nhất cho đồ án: hệ thống không chỉ vẽ chart, mà phải giải thích được dữ liệu.
+
+REIS trả lời 4 câu hỏi:
+
+| Câu hỏi | Cách REIS trả lời |
+|---|---|
+| Xu hướng chính là gì? | AQI có chu kỳ ngày/tuần, thường tăng vào chiều tối |
+| Pattern đáng chú ý là gì? | Miền Bắc, đặc biệt Hà Nội và vùng vệ tinh, là cụm ô nhiễm nổi bật |
+| Có thể dự đoán/giải thích gì? | AQI có tính nhớ theo thời gian, nên forecast ngắn hạn có cơ sở |
+| Insight có giá trị gì? | Giúp người dùng chọn thời điểm ra ngoài, giúp operator ưu tiên cảnh báo vùng |
+
+Nguồn insight gồm:
+
+- EDA notebook làm baseline.
+- Live DB bổ sung số liệu hiện tại nếu có.
+- LLM/template insight cho từng tỉnh.
+- PDF report để xuất kết luận thành tài liệu.
+
+---
+
+## 9. Test Và Kiểm Tra
+
+Backend route tests:
 
 ```bash
 cd /home/ductien/Documents/reis
 /home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_api_routes.py -v
 ```
 
-### Core pipeline/model tests
+Consumer + model tests:
 
 ```bash
 cd /home/ductien/Documents/reis
 /home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_consumer.py backend/tests/test_isolation_forest.py -v
 ```
 
-### Full backend test suite
-
-```bash
-cd /home/ductien/Documents/reis
-/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/ -v
-```
-
-### Frontend checks
+Frontend:
 
 ```bash
 cd /home/ductien/Documents/reis/frontend
@@ -702,268 +401,78 @@ npm run lint
 npm run build
 ```
 
-### Current verified commands
-
-The following have been verified during the latest implementation cycle:
-
-```bash
-/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_api_routes.py -v
-/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_consumer.py backend/tests/test_isolation_forest.py -v
-cd frontend && npm run lint
-cd frontend && npm run build
-```
-
 ---
 
-## 13. Docker Services
+## 10. Ghi Chú Vận Hành
 
-### Minimal infra
+### Source label trên frontend
 
-```bash
-docker compose up -d zookeeper kafka redis timescaledb
-```
+Frontend luôn gắn nhãn nguồn dữ liệu:
 
-### Optional tools
+- `LIVE API`: REST API đang hoạt động.
+- `LIVE WS/API`: WebSocket đang gửi dữ liệu realtime.
+- `MOCK FALLBACK`: API chưa sẵn sàng, UI dùng fallback deterministic.
 
-```bash
-docker compose up -d kafka-ui pgadmin
-```
-
-| Service | Port | Purpose |
-|---|---:|---|
-| Kafka | `9092` | Local broker |
-| Zookeeper | `2181` | Kafka coordination |
-| TimescaleDB | `5432` | Time-series database |
-| Redis | `6379` | Cache/DLQ helpers |
-| Kafka UI | `8090` | Optional Kafka browser |
-| pgAdmin | `5050` | Optional DB UI |
-| FastAPI | `8000` | API service |
-| Frontend | `3000` | Vite dev server |
-
-### App services through Compose
-
-The compose file includes `fastapi` and `frontend` services, but during development the recommended workflow is:
-
-- Docker Compose for infrastructure.
-- Local conda Python for backend.
-- Local npm/Vite for frontend.
-
-This keeps logs readable and reload behavior predictable.
-
----
-
-## 14. Environment Variables
-
-Copy `.env.example` if needed:
-
-```bash
-cp .env.example .env
-```
-
-Important variables:
-
-```env
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=reis
-DB_PASSWORD=reis_secret
-DB_NAME=reis_db
-
-# Kafka
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-KAFKA_CONSUMER_GROUP=reis-consumer-group
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
-# LLM
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
-
-# Cache
-INSIGHT_CACHE_TTL_SECONDS=3600
-INFERENCE_CACHE_TTL_SECONDS=600
-
-# API
-CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173
-LOG_LEVEL=INFO
-LOG_JSON=false
-
-# Frontend
-VITE_API_URL=http://localhost:8000
-VITE_WS_URL=ws://localhost:8000/ws/live
-```
-
-Security note:
-
-- Do not commit real API keys.
-- Do not use `reis_secret` in production.
-- Frontend must not call Gemini/OpenAI directly with secret keys; LLM calls should go through backend routes.
-
----
-
-## 15. Troubleshooting
-
-### Frontend says API fallback is active
-
-Usually FastAPI is not running or CORS/port is wrong.
-
-Check:
+Nếu thấy `MOCK FALLBACK`, hãy kiểm tra FastAPI:
 
 ```bash
 curl http://localhost:8000/api/health
 curl http://localhost:8000/api/provinces
 ```
 
-Then restart frontend with:
+### Kafka UI unhealthy
+
+Kafka UI chỉ là tool phụ. Nếu Kafka healthy thì pipeline vẫn chạy được.
+
+Nếu Kafka bị kẹt session Zookeeper, chạy:
 
 ```bash
-cd frontend
-VITE_API_URL=http://localhost:8000 VITE_WS_URL=ws://localhost:8000/ws/live npm run dev -- --host 0.0.0.0 --port 3000
+cd /home/ductien/Documents/reis
+docker-compose up -d zookeeper
+sleep 20
+docker-compose up -d kafka kafka-ui redis timescaledb
+docker-compose ps
 ```
 
-### `AI anomalies = 6/63` but list is empty
+### AI score là `N/A`
 
-This used to happen when summary counted model inference but province list read only DB `anomaly_score`, which was often `NULL`.
+Thường do một trong các lý do:
 
-Current fix:
+- API đang fallback/mock.
+- Model artifacts thiếu hoặc chưa load được.
+- FastAPI chưa restart sau khi sửa code.
+- Inference lỗi và route fallback về default.
 
-- `/api/provinces` enriches latest readings with cached anomaly inference.
-- `/api/anomalies` uses the same enriched anomaly score.
-- Restart FastAPI after pulling latest code.
-
-### Most AI scores are `N/A`
-
-Possible causes:
-
-- API is using fallback/mock.
-- Model artifacts are missing.
-- FastAPI has not been restarted after code changes.
-- Inference failed and route fell back to default.
-
-Check:
+Kiểm tra:
 
 ```bash
 curl "http://localhost:8000/api/province/1?hours=48"
-curl http://localhost:8000/api/anomalies
 ```
 
-Look for:
+Tìm field:
 
 ```json
 "inference_source": "model | cache"
 ```
 
-### Kafka UI is unhealthy
+### Giới hạn hiện tại
 
-Kafka UI is optional. If core services are healthy, continue without it:
+Project đã demo-ready nhưng chưa phải production:
 
-```bash
-docker compose up -d zookeeper kafka redis timescaledb
-```
-
-Verify Kafka itself:
-
-```bash
-docker compose ps kafka
-docker compose logs kafka --tail=100
-```
-
-### Duplicate DB rows
-
-Backfill is designed to be idempotent when the schema has a unique key on `(province_id, time)`.
-
-Check duplicates:
-
-```bash
-docker compose exec timescaledb psql -U reis -d reis_db -c "
-select province_id, time, count(*)
-from env_readings
-group by province_id, time
-having count(*) > 1
-limit 20;
-"
-```
-
-### TensorFlow CUDA/TensorRT warnings
-
-On CPU-only machines, warnings such as `CUDA_ERROR_NO_DEVICE` or missing TensorRT are expected. They are noisy but not fatal for local demo.
-
-### PDF route is not found
-
-Restart FastAPI after pulling latest code:
-
-```bash
-cd backend
-/home/ductien/miniconda3/envs/reis/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Then try:
-
-```bash
-curl -I "http://localhost:8000/api/report/province/1.pdf"
-```
+- Chưa có authentication.
+- Chưa có monitoring production.
+- Alert Telegram/email mới là hướng phát triển.
+- Airflow/MLOps mới ở mức skeleton/docs.
+- Forecast confidence band vẫn là mức demo, chưa calibrated như production.
 
 ---
 
-## 16. Current Limitations
+## Kết Luận
 
-This project is demo-ready, not production-complete.
-
-Known limitations:
-
-- No authentication or user roles.
-- No production monitoring stack.
-- No real Telegram/email alert dispatch in the current demo path.
-- Airflow/MLOps is a skeleton/documentation task, not fully operational.
-- Simulator spike tool is planned but not fully implemented.
-- Forecast confidence bands are demo-oriented and should be calibrated before production use.
-- Frontend has lint/build checks but no dedicated component test suite yet.
-- PDF charts are backend-generated ReportLab charts, not full frontend screenshots.
-
----
-
-## 17. Suggested Demo Narrative
-
-If presenting REIS, use this story:
-
-1. Start with the problem: current AQI alone is reactive.
-2. Show the pipeline: Open-Meteo -> Kafka -> TimescaleDB.
-3. Show Dashboard: national status, map, AQI warnings, AI anomalies.
-4. Explain the difference between AQI warning and AI anomaly.
-5. Show Analytics: one province, history, forecast confidence band.
-6. Show Compare: multiple provinces side by side.
-7. Show Alerts: explain event type, severity, reason, recommendations.
-8. Export PDF report: prove the system can produce shareable output.
-9. Close with limitations: MLOps, simulator, production alerting are next steps.
-
-One-line summary:
+REIS không chỉ là dashboard AQI. Hệ thống mô phỏng một vòng lặp dữ liệu hoàn chỉnh:
 
 ```text
-REIS is not only a dashboard; it is an environmental intelligence loop: observe, forecast, explain, alert, and report.
+Thu thập -> Stream -> Lưu trữ -> Phân tích -> Dự báo -> Giải thích -> Báo cáo
 ```
 
----
-
-## Documentation
-
-- Project progress: [PROGRESS.md](PROGRESS.md)
-- Presentation script: [docs/presentation_script.md](docs/presentation_script.md)
-- Architecture notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Data sources: [docs/data-sources.md](docs/data-sources.md)
-- ML models: [docs/ml-models.md](docs/ml-models.md)
-- MLOps skeleton: [docs/mlops_airflow_skeleton.md](docs/mlops_airflow_skeleton.md)
-- Simulator task: [docs/simulator_task.md](docs/simulator_task.md)
-- ADR Kafka vs RabbitMQ: [docs/adr/001-kafka-vs-rabbitmq.md](docs/adr/001-kafka-vs-rabbitmq.md)
-- ADR TimescaleDB vs InfluxDB: [docs/adr/002-timescaledb-vs-influxdb.md](docs/adr/002-timescaledb-vs-influxdb.md)
-- ADR Gemini vs GPT: [docs/adr/003-gemini-vs-gpt4.md](docs/adr/003-gemini-vs-gpt4.md)
-
----
-
-## License
-
-This repository is intended for academic/demo use. Add or update a formal license file before public production distribution.
+Điểm mạnh nhất của project nằm ở việc kết hợp **realtime pipeline**, **frontend trực quan**, **AI/ML inference**, và **Insight & Interpretation** để biến dữ liệu môi trường thô thành thông tin có thể hành động.
