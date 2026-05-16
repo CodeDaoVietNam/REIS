@@ -5,6 +5,7 @@ import type {
   EnvironmentalData,
   ForecastPayload,
   InsightPayload,
+  InsightSummaryPayload,
   MetricKey,
   Province,
   ProvinceDetail,
@@ -278,6 +279,80 @@ export function getMockSummary(): SummaryPayload {
     anomaly_count: readings.filter((row) => row.is_anomaly).length,
     province_count: PROVINCES.length,
     latest_time: readings[0]?.time ?? null,
+  };
+}
+
+export function getMockInsightSummary(): InsightSummaryPayload {
+  return {
+    generated_at: new Date().toISOString(),
+    source: 'eda_baseline',
+    latest_time: null,
+    context: {
+      available: false,
+      province_count_with_data: 0,
+      aqi_warning_count: 0,
+    },
+    findings: [
+      {
+        id: 'daily-weekly-cycle',
+        title: 'AQI tăng theo chu kỳ chiều tối',
+        question: 'Xu hướng chính của dữ liệu là gì?',
+        claim: 'AQI thường tăng rõ vào khung 17h-20h và biến động theo ngày trong tuần.',
+        evidence: 'EDA cho thấy peak quanh giờ chiều tối; thứ Ba ô nhiễm nổi bật, thứ Bảy thường sạch hơn.',
+        interpretation: 'Mẫu này phù hợp với tác động của giao thông, hoạt động đô thị và điều kiện khuếch tán khí quyển cuối ngày.',
+        practical_value: 'Người dùng nên ưu tiên lịch thể thao/di chuyển ngoài trời ngoài khung giờ rủi ro.',
+        source: 'EDA baseline',
+        confidence: 'medium_high',
+      },
+      {
+        id: 'north-south-split',
+        title: 'Miền Bắc là cụm ô nhiễm nổi bật',
+        question: 'Có pattern nào đáng chú ý?',
+        claim: 'Miền Bắc có mặt bằng AQI cao hơn miền Nam, đặc biệt quanh Hà Nội và các tỉnh vệ tinh.',
+        evidence: 'Notebook EDA ghi nhận median AQI miền Bắc xấp xỉ 120, gần gấp đôi miền Nam khoảng 70.',
+        interpretation: 'Có thể liên quan tới mật độ đô thị, công nghiệp, giao thông và điều kiện khí tượng giữ bụi.',
+        practical_value: 'Dashboard cần ưu tiên cảnh báo vùng thay vì chỉ cảnh báo từng tỉnh rời rạc.',
+        source: 'EDA baseline',
+        confidence: 'high',
+      },
+      {
+        id: 'regional-crisis',
+        title: 'AQI cao thường xuất hiện theo cụm vùng',
+        question: 'Có pattern nào đáng chú ý?',
+        claim: 'Các đợt AQI rất cao có thể xuất hiện đồng thời trên nhiều tỉnh lân cận.',
+        evidence: 'EDA phát hiện nhiều thời điểm AQI > 200 xảy ra theo cụm tỉnh trong cùng cửa sổ thời gian.',
+        interpretation: 'Điều này gợi ý vai trò của khí tượng diện rộng hoặc nguồn phát thải vùng.',
+        practical_value: 'Alert Center nên phân biệt cảnh báo tỉnh đơn lẻ và cảnh báo có tính vùng.',
+        source: 'EDA baseline',
+        confidence: 'medium_high',
+      },
+      {
+        id: 'autoregression',
+        title: 'AQI có tính nhớ theo thời gian',
+        question: 'Có thể dự đoán hoặc giải thích điều gì?',
+        claim: 'AQI hiện tại phụ thuộc mạnh vào các mốc trước đó, nhất là 1h và chu kỳ 24h.',
+        evidence: 'EDA feature engineering cho thấy lag 1h, 3h, 6h và 24h là nhóm tín hiệu quan trọng.',
+        interpretation: 'Ô nhiễm có quán tính, nên forecast ngắn hạn có cơ sở kỹ thuật.',
+        practical_value: 'Forecast 12h giúp người dùng chuẩn bị trước thay vì chỉ phản ứng khi AQI đã xấu.',
+        source: 'EDA baseline',
+        confidence: 'high',
+      },
+      {
+        id: 'hanoi-hotspot',
+        title: 'Hà Nội là hotspot cần theo dõi sâu',
+        question: 'Insight có giá trị thực tế gì?',
+        claim: 'Hà Nội vừa có mức ô nhiễm cao, vừa có nhiều pattern bất thường hơn nhiều tỉnh khác.',
+        evidence: 'EDA anomaly cho thấy Hà Nội là tỉnh có số anomaly nổi bật.',
+        interpretation: 'Một đô thị lớn có nhiều nguồn tác động chồng lên nhau, nên cần kết hợp AQI warning, anomaly và forecast.',
+        practical_value: 'Người dùng ở Hà Nội nên theo dõi cả chỉ số hiện tại lẫn xu hướng dự báo.',
+        source: 'EDA baseline',
+        confidence: 'medium_high',
+      },
+    ],
+    charts: {
+      top_polluted: [],
+      regional_aqi: [],
+    },
   };
 }
 

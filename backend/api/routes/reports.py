@@ -12,6 +12,9 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.shapes import Drawing, String
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -28,6 +31,7 @@ from backend.api.routes.provinces import (
     province_meta,
 )
 from backend.insights.insight_cache import get_or_create_insight
+from backend.insights.eda_findings import BASELINE_FINDINGS, build_insight_summary_payload
 from backend.models.predict import DEFAULT_ANOMALY, DEFAULT_FORECAST
 
 logger = logging.getLogger(__name__)
@@ -167,6 +171,98 @@ def _table(data: list[list[Any]], widths: list[float] | None = None) -> Table:
     return table
 
 
+def _line_chart(
+    rows: list[dict[str, Any]],
+    metric: str,
+    title: str,
+    width: float = 16 * cm,
+    height: float = 7 * cm,
+) -> Drawing | None:
+    points = [
+        _safe_float(row.get(metric))
+        for row in rows
+        if row.get(metric) is not None
+    ]
+    if len(points) < 2:
+        return None
+
+    points = points[-48:]
+    max_value = max(points) if points else 1
+    drawing = Drawing(width, height)
+    drawing.add(String(4, height - 12, title, fontName=BASE_FONT_BOLD, fontSize=9, fillColor=colors.HexColor("#143f2d")))
+
+    chart = LinePlot()
+    chart.x = 34
+    chart.y = 24
+    chart.width = width - 54
+    chart.height = height - 48
+    chart.data = [[(index, value) for index, value in enumerate(points)]]
+    chart.lines[0].strokeColor = colors.HexColor("#1f9d6a")
+    chart.lines[0].strokeWidth = 2
+    chart.xValueAxis.valueMin = 0
+    chart.xValueAxis.valueMax = max(len(points) - 1, 1)
+    chart.xValueAxis.valueStep = max(1, len(points) // 6)
+    chart.yValueAxis.valueMin = 0
+    chart.yValueAxis.valueMax = max(50, max_value * 1.2)
+    chart.yValueAxis.valueStep = max(25, round(max_value / 4))
+    drawing.add(chart)
+    return drawing
+
+
+def _bar_chart(
+    labels: list[str],
+    values: list[float],
+    title: str,
+    width: float = 16 * cm,
+    height: float = 7 * cm,
+) -> Drawing | None:
+    if not labels or not values:
+        return None
+
+    values = [max(0, _safe_float(value)) for value in values]
+    drawing = Drawing(width, height)
+    drawing.add(String(4, height - 12, title, fontName=BASE_FONT_BOLD, fontSize=9, fillColor=colors.HexColor("#143f2d")))
+
+    chart = VerticalBarChart()
+    chart.x = 34
+    chart.y = 36
+    chart.width = width - 54
+    chart.height = height - 62
+    chart.data = [values]
+    chart.categoryAxis.categoryNames = labels
+    chart.categoryAxis.labels.angle = 30
+    chart.categoryAxis.labels.fontName = BASE_FONT
+    chart.categoryAxis.labels.fontSize = 6
+    chart.valueAxis.valueMin = 0
+    chart.valueAxis.valueMax = max(50, max(values) * 1.2)
+    chart.valueAxis.valueStep = max(25, round(max(values) / 4))
+    chart.bars[0].fillColor = colors.HexColor("#1f9d6a")
+    drawing.add(chart)
+    return drawing
+
+
+def _append_interpretation_sections(
+    story: list[Any],
+    styles: dict[str, ParagraphStyle],
+    findings: list[dict[str, Any]] | None = None,
+) -> None:
+    selected = findings or BASELINE_FINDINGS
+    story.append(Paragraph("Insight & Interpretation", styles["h2"]))
+    story.append(
+        _table(
+            [
+                ["Rubric question", "Conclusion"],
+                ["Main Trend", selected[0]["claim"]],
+                ["Notable Pattern", selected[1]["claim"]],
+                ["Forecast / Explanation", selected[3]["interpretation"]],
+                ["Practical Value", selected[0]["practical_value"]],
+                ["Limitations", "Các kết luận EDA là baseline; live DB được dùng best-effort và cần thêm tuning để kết luận vận hành chính thức."],
+            ],
+            [5 * cm, 11 * cm],
+        )
+    )
+
+
 async def _province_payload(
     pool: asyncpg.Pool | None,
     province_id: int,
@@ -225,6 +321,7 @@ async def _province_payload(
         "forecast": inference.get("forecast", DEFAULT_FORECAST),
         "inference_source": inference_source,
         "insight": insight,
+        "insight_summary": await build_insight_summary_payload(pool),
     }
 
 
@@ -259,6 +356,11 @@ def _build_province_report(payload: dict[str, Any], hours: int) -> bytes:
         f"Forecast model: {forecast.get('model_family', 'N/A')}."
     )
     story.append(Paragraph(summary, styles["body"]))
+
+    chart = _line_chart(payload["history"], "aqi", f"AQI history - last {hours} hours")
+    if chart is not None:
+        story.append(Spacer(1, 8))
+        story.append(chart)
 
     story.append(Paragraph("2. Current Reading", styles["h2"]))
     story.append(
@@ -306,7 +408,7 @@ def _build_province_report(payload: dict[str, Any], hours: int) -> bytes:
         ])
     story.append(_table(forecast_rows, [3 * cm, 4 * cm, 4 * cm, 4 * cm]))
 
-    story.append(Paragraph("5. Insight & Recommendations", styles["h2"]))
+    story.append(Paragraph("5. Province LLM/Template Insight", styles["h2"]))
     insight_text = insight.get("text") or insight.get("summary") or "No narrative insight available."
     story.append(Paragraph(str(insight_text), styles["body"]))
     advice = insight.get("health_advice")
@@ -316,6 +418,8 @@ def _build_province_report(payload: dict[str, Any], hours: int) -> bytes:
     if actions:
         action_rows = [["Recommended actions"], *[[str(item)] for item in actions[:5]]]
         story.append(_table(action_rows, [16 * cm]))
+
+    _append_interpretation_sections(story, styles, payload.get("insight_summary", {}).get("findings"))
 
     story.append(Paragraph("6. Historical Table", styles["h2"]))
     history_rows = [["Time", "AQI", "PM2.5", "Temp", "Wind", "AI score"]]
@@ -370,6 +474,13 @@ def _build_compare_report(payload: dict[str, Any]) -> bytes:
         ])
     story.append(_table(summary_rows))
 
+    chart_labels = [item["province"]["name_vi"][:12] for item in provinces]
+    chart_values = [_safe_float((item["current"] or {}).get("aqi")) for item in provinces]
+    chart = _bar_chart(chart_labels, chart_values, "Current AQI comparison")
+    if chart is not None:
+        story.append(Spacer(1, 8))
+        story.append(chart)
+
     story.append(Paragraph("2. Radar Metrics", styles["h2"]))
     radar_rows = [["Province", "AQI", "PM2.5", "PM10", "NO2", "Ozone", "UV"]]
     for item in provinces:
@@ -384,6 +495,8 @@ def _build_compare_report(payload: dict[str, Any]) -> bytes:
             _fmt(radar.get("uv_index"), 1),
         ])
     story.append(_table(radar_rows))
+
+    _append_interpretation_sections(story, styles, payload.get("insight_summary", {}).get("findings"))
 
     story.append(PageBreak())
     story.append(Paragraph("3. Historical Samples", styles["h2"]))
@@ -400,6 +513,98 @@ def _build_compare_report(payload: dict[str, Any]) -> bytes:
             ])
         story.append(_table(rows))
         story.append(Spacer(1, 8))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_insight_report(payload: dict[str, Any]) -> bytes:
+    styles = _styles()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=1.2 * cm,
+        leftMargin=1.2 * cm,
+        topMargin=1.2 * cm,
+        bottomMargin=1.2 * cm,
+        title="REIS National Insight Report",
+    )
+    story: list[Any] = []
+    findings = payload.get("findings") or BASELINE_FINDINGS
+    charts = payload.get("charts") or {}
+    context = payload.get("context") or {}
+
+    story.append(Paragraph("REIS National Insight & Interpretation Report", styles["title"]))
+    story.append(
+        Paragraph(
+            f"Generated: {_now_label()} | Source: {payload.get('source', 'eda_baseline')} | "
+            f"Latest data: {payload.get('latest_time') or 'N/A'}",
+            styles["small"],
+        )
+    )
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph("1. Executive Interpretation", styles["h2"]))
+    story.append(
+        Paragraph(
+            "This report converts the EDA notebook into explicit conclusions for the course rubric: "
+            "main trend, notable patterns, forecast/explanation, and practical value.",
+            styles["body"],
+        )
+    )
+
+    regional = charts.get("regional_aqi") or []
+    regional_chart = _bar_chart(
+        [item.get("label", item.get("region", "N/A")) for item in regional],
+        [_safe_float(item.get("aqi_avg")) for item in regional],
+        "Live regional AQI average",
+    )
+    if regional_chart is not None:
+        story.append(Spacer(1, 8))
+        story.append(regional_chart)
+
+    story.append(Paragraph("2. Key Findings", styles["h2"]))
+    finding_rows = [["Finding", "Evidence", "Practical value"]]
+    for finding in findings:
+        finding_rows.append([
+            Paragraph(str(finding.get("title", "N/A")), styles["body"]),
+            Paragraph(str(finding.get("evidence", "N/A")), styles["body"]),
+            Paragraph(str(finding.get("practical_value", "N/A")), styles["body"]),
+        ])
+    story.append(_table(finding_rows, [4.2 * cm, 6.2 * cm, 6.2 * cm]))
+
+    top_polluted = charts.get("top_polluted") or []
+    top_chart = _bar_chart(
+        [item.get("name_vi", "N/A")[:12] for item in top_polluted[:8]],
+        [_safe_float(item.get("aqi")) for item in top_polluted[:8]],
+        "Top polluted provinces by latest AQI",
+    )
+    if top_chart is not None:
+        story.append(PageBreak())
+        story.append(Paragraph("3. Live Evidence Charts", styles["h2"]))
+        story.append(top_chart)
+        story.append(Spacer(1, 8))
+        top_rows = [["Province", "Region", "AQI", "PM2.5"]]
+        for item in top_polluted[:10]:
+            top_rows.append([
+                item.get("name_vi", "N/A"),
+                item.get("region", "N/A"),
+                _fmt(item.get("aqi"), 0),
+                _fmt(item.get("pm2_5"), 1),
+            ])
+        story.append(_table(top_rows, [5 * cm, 3 * cm, 3 * cm, 3 * cm]))
+
+    story.append(Paragraph("4. Rubric Answer", styles["h2"]))
+    _append_interpretation_sections(story, styles, findings)
+    story.append(Paragraph("5. Operational Limitations", styles["h2"]))
+    story.append(
+        Paragraph(
+            f"Live context available: {context.get('available', False)}. "
+            "EDA findings should be treated as project-level analytical conclusions, while live DB numbers are a current snapshot.",
+            styles["body"],
+        )
+    )
 
     doc.build(story)
     return buffer.getvalue()
@@ -458,5 +663,20 @@ async def get_compare_report(
             }
         )
 
-    content = _build_compare_report({"metric": metric, "days": days, "provinces": provinces})
+    content = _build_compare_report(
+        {
+            "metric": metric,
+            "days": days,
+            "provinces": provinces,
+            "insight_summary": await build_insight_summary_payload(pool),
+        }
+    )
     return _pdf_response(content, "reis-compare-report.pdf")
+
+
+@router.get("/api/report/insights.pdf")
+async def get_insight_report(request: Request) -> Response:
+    general_limiter.check(request)
+    payload = await build_insight_summary_payload(get_pool(request))
+    content = _build_insight_report(payload)
+    return _pdf_response(content, "reis-national-insight-report.pdf")

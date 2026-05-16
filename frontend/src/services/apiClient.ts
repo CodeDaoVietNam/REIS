@@ -4,6 +4,7 @@ import type {
   ApiProvinceSummary,
   CompareResponse,
   ForecastPayload,
+  InsightSummaryPayload,
   InsightResponse,
   MetricKey,
   SummaryPayload,
@@ -71,6 +72,10 @@ export function getSummary(): Promise<SummaryPayload> {
   return requestJson<SummaryPayload>('/api/summary');
 }
 
+export function getInsightSummary(): Promise<InsightSummaryPayload> {
+  return requestJson<InsightSummaryPayload>('/api/insight-summary');
+}
+
 export function getCompare(provinceIds: number[], days: number, metric: MetricKey): Promise<CompareResponse> {
   const ids = provinceIds.join(',');
   return requestJson<CompareResponse>(`/api/compare?province_ids=${ids}&days=${days}&metric=${metric}`);
@@ -83,4 +88,8 @@ export function getProvinceReportUrl(provinceId: number, hours = 48): string {
 export function getCompareReportUrl(provinceIds: number[], days: number, metric: MetricKey): string {
   const ids = provinceIds.join(',');
   return buildApiUrl(`/api/report/compare.pdf?province_ids=${ids}&days=${days}&metric=${metric}`);
+}
+
+export function getInsightReportUrl(): string {
+  return buildApiUrl('/api/report/insights.pdf');
 }

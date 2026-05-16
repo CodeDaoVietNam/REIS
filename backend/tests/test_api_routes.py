@@ -93,6 +93,29 @@ async def test_summary_returns_kpi_contract_without_db():
 
 
 @pytest.mark.asyncio
+async def test_insight_summary_returns_eda_fallback_without_db():
+    async with make_client() as client:
+        response = await client.get("/api/insight-summary")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["source"] == "eda_baseline"
+    assert payload["latest_time"] is None
+    assert len(payload["findings"]) >= 5
+    assert {
+        "id",
+        "title",
+        "question",
+        "claim",
+        "evidence",
+        "interpretation",
+        "practical_value",
+        "source",
+        "confidence",
+    } <= set(payload["findings"][0])
+
+
+@pytest.mark.asyncio
 async def test_compare_returns_default_province_contract_without_db():
     async with make_client() as client:
         response = await client.get("/api/compare?province_ids=1,2,4&days=7&metric=aqi")
@@ -242,6 +265,18 @@ async def test_compare_report_returns_pdf_without_db():
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.content.startswith(b"%PDF")
+    assert len(response.content) > 1000
+
+
+@pytest.mark.asyncio
+async def test_insight_report_returns_pdf_without_db():
+    async with make_client() as client:
+        response = await client.get("/api/report/insights.pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+    assert len(response.content) > 1000
 
 
 def test_alert_record_contract_classifies_combined_event():

@@ -66,6 +66,7 @@ The system collects weather and air-quality signals, streams them through Kafka,
 - FastAPI REST routes and WebSocket live route.
 - React/Vite frontend with Dashboard, Analytics, Compare, Map, Alerts, About.
 - AQI warnings and AI anomalies are separated semantically.
+- EDA-backed Key Findings answer the course insight/interpretation rubric directly.
 - LSTM/Prophet-style forecast interface with confidence band.
 - Isolation Forest anomaly scoring through model artifacts.
 - Insight generation through Gemini/OpenAI when keys exist, with template fallback.
@@ -452,6 +453,7 @@ http://localhost:8000/docs
 | `GET` | `/api/province/{id}?hours=168` | Province detail, current, history, anomaly, forecast |
 | `GET` | `/api/forecast/{id}` | Forecast payload |
 | `GET` | `/api/insights/{id}` | Natural-language insight |
+| `GET` | `/api/insight-summary` | EDA-backed national Key Findings |
 | `GET` | `/api/anomalies` | Alert Center events |
 | `GET` | `/api/compare?province_ids=1,2,4&days=7&metric=aqi` | Multi-province comparison |
 
@@ -461,6 +463,7 @@ http://localhost:8000/docs
 |---|---|---|
 | `GET` | `/api/report/province/{id}.pdf?hours=48` | Export one-province report |
 | `GET` | `/api/report/compare.pdf?province_ids=1,2,4&days=7&metric=aqi` | Export multi-province comparison report |
+| `GET` | `/api/report/insights.pdf` | Export national Insight & Interpretation report |
 
 ### WebSocket
 
@@ -510,6 +513,7 @@ http://localhost:8000/docs
 - Bell icon opens Alert Center.
 - Settings icon opens quick settings and system info.
 - Dashboard KPI cards for `AQI warnings` and `AI anomalies` are clickable drill-downs.
+- Dashboard includes `Key Findings`, a rubric-focused interpretation layer derived from EDA and live DB context.
 
 ### Source labels
 
@@ -563,11 +567,33 @@ Insight cache:
 - Helps avoid repeated paid LLM calls.
 - Good enough for demo where AQI changes at minute/hour cadence, not second cadence.
 
+### Key Findings from EDA
+
+REIS includes a separate `Key Findings` layer because the course rubric requires interpretation, not only visualization.
+
+It answers four questions explicitly:
+
+- `Main trend`: AQI has a daily/weekly rhythm and often increases around the evening window.
+- `Notable pattern`: the North, especially Hanoi and nearby provinces, forms a stronger pollution cluster than the South.
+- `Forecast / explanation`: AQI has temporal memory through lag features, so short-term forecasting is technically justified.
+- `Practical value`: users can plan outdoor activity, operators can prioritize regional warnings, and reports can explain why a chart matters.
+
+The API endpoint is:
+
+```bash
+curl "http://localhost:8000/api/insight-summary"
+```
+
+The response is hybrid:
+
+- `eda_live_hybrid`: EDA baseline enriched with current TimescaleDB metrics.
+- `eda_baseline`: safe fallback when DB is unavailable.
+
 ---
 
 ## 11. PDF Reports
 
-REIS can export two report types from the backend.
+REIS can export three report types from the backend.
 
 ### One-province report
 
@@ -586,10 +612,12 @@ Analytics -> Export province PDF
 Included sections:
 
 - Executive Summary
+- AQI history chart
 - Current Reading
 - AI Anomaly Analysis
 - Forecast 12h
-- Insight & Recommendations
+- Province LLM/template insight
+- Insight & Interpretation
 - Historical Table
 
 ### Multi-province compare report
@@ -609,13 +637,37 @@ Compare -> Export compare PDF
 Included sections:
 
 - Executive Comparison
+- Current AQI comparison chart
 - AQI/PM2.5/temperature/wind/anomaly score table
 - Radar metrics
+- Insight & Interpretation
 - Historical samples for each selected province
+
+### National insight report
+
+Endpoint:
+
+```bash
+curl -o national-insights.pdf "http://localhost:8000/api/report/insights.pdf"
+```
+
+Frontend:
+
+```text
+Dashboard -> Key Findings -> Export insight PDF
+```
+
+Included sections:
+
+- Executive Interpretation
+- Key Findings from EDA
+- Regional AQI chart when live DB is available
+- Top polluted provinces chart when live DB is available
+- Rubric answer: Main Trend, Notable Pattern, Forecast / Explanation, Practical Value, Limitations
 
 ### Implementation detail
 
-PDF generation uses `reportlab`. It is intentionally backend-side so the frontend does not need to capture charts or expose report logic in the browser.
+PDF generation uses `reportlab`, including backend-generated charts. It is intentionally backend-side so the frontend does not need to capture screenshots or expose report logic in the browser.
 
 ---
 
@@ -871,7 +923,7 @@ Known limitations:
 - Simulator spike tool is planned but not fully implemented.
 - Forecast confidence bands are demo-oriented and should be calibrated before production use.
 - Frontend has lint/build checks but no dedicated component test suite yet.
-- PDF reports are backend-generated tables/text, not full chart screenshots.
+- PDF charts are backend-generated ReportLab charts, not full frontend screenshots.
 
 ---
 

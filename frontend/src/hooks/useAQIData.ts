@@ -3,6 +3,7 @@ import {
   getAnomalies,
   getCompare,
   getInsight,
+  getInsightSummary,
   getProvinceDetail,
   getProvinceDetailWithHours,
   getProvinces,
@@ -12,6 +13,7 @@ import {
   getMockAnomalies,
   getMockCompare,
   getMockInsight,
+  getMockInsightSummary,
   getMockProvinceDetail,
   getMockProvinceSummaries,
   getMockSummary,
@@ -25,6 +27,7 @@ import type {
   EnvironmentalData,
   ForecastPayload,
   InsightPayload,
+  InsightSummaryPayload,
   MetricKey,
   ProvinceDetail,
   ProvinceMeta,
@@ -394,6 +397,46 @@ export function useSummary(): QueryState<SummaryPayload> {
 
     load();
     // Auto-refresh every 5 minutes
+    const interval = setInterval(load, REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  return state;
+}
+
+export function useInsightSummary(): QueryState<InsightSummaryPayload> {
+  const [state, setState] = useState<QueryState<InsightSummaryPayload>>({
+    data: getMockInsightSummary(),
+    loading: true,
+    error: null,
+    source: 'mock',
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const summary = await getInsightSummary();
+        if (!cancelled) {
+          setState({ data: summary, loading: false, error: null, source: 'api' });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setState({
+            data: getMockInsightSummary(),
+            loading: false,
+            error: error instanceof Error ? error.message : 'API unavailable',
+            source: 'mock',
+          });
+        }
+      }
+    }
+
+    load();
     const interval = setInterval(load, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;

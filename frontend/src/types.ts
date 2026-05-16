@@ -111,6 +111,34 @@ export interface SummaryPayload {
   latest_time: string | null;
 }
 
+export interface InsightFinding {
+  id: string;
+  title: string;
+  question: string;
+  claim: string;
+  evidence: string;
+  interpretation: string;
+  practical_value: string;
+  source: string;
+  confidence: string;
+}
+
+export interface InsightSummaryPayload {
+  generated_at: string;
+  source: 'eda_live_hybrid' | 'eda_baseline' | string;
+  latest_time: string | null;
+  context?: {
+    available?: boolean;
+    province_count_with_data?: number;
+    aqi_warning_count?: number;
+  };
+  findings: InsightFinding[];
+  charts?: {
+    top_polluted?: Array<Record<string, unknown>>;
+    regional_aqi?: Array<Record<string, unknown>>;
+  };
+}
+
 export interface CompareProvince {
   province: ProvinceMeta;
   current: EnvironmentalData | null;

@@ -5,9 +5,10 @@ import { Activity, AlertTriangle, Brain, Gauge, Radio, ShieldAlert, Wind, X } fr
 import { AqiGauge } from '@/src/components/AqiGauge';
 import { ForecastBandChart } from '@/src/components/ForecastBandChart';
 import { InsightCard } from '@/src/components/InsightCard';
+import { KeyFindings } from '@/src/components/KeyFindings';
 import { KpiCard } from '@/src/components/KpiCard';
 import { VietnamLiveMap } from '@/src/components/VietnamLiveMap';
-import { useInsight, useProvinceDetail, useProvinces, useSummary } from '@/src/hooks/useAQIData';
+import { useInsight, useInsightSummary, useProvinceDetail, useProvinces, useSummary } from '@/src/hooks/useAQIData';
 import { useWebSocket } from '@/src/hooks/useWebSocket';
 import { cn, formatFixed, getAQIColor, getAQILabel, safeNumber } from '@/src/lib/utils';
 import type { ProvinceSummary } from '@/src/types';
@@ -20,6 +21,7 @@ export default function Dashboard() {
   const [drilldown, setDrilldown] = useState<DrilldownType>(null);
   const provincesQuery = useProvinces();
   const summaryQuery = useSummary();
+  const insightSummaryQuery = useInsightSummary();
   const detailQuery = useProvinceDetail(selectedProvinceId, 48);
   const insightQuery = useInsight(selectedProvinceId);
   const realtime = useWebSocket();
@@ -183,6 +185,14 @@ export default function Dashboard() {
             updatedAt={selectedCurrent.time}
           />
         </aside>
+      </div>
+
+      <div className="mt-6">
+        <KeyFindings
+          payload={insightSummaryQuery.data}
+          loading={insightSummaryQuery.loading}
+          source={insightSummaryQuery.source}
+        />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
