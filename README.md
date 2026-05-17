@@ -181,34 +181,49 @@ React Frontend
 
 ## 5. Cách Chạy Project
 
-Các lệnh dưới đây giả định môi trường Python:
+### 5.1. Chuẩn bị môi trường
+
+Backend của REIS được khóa theo **Python 3.11.x**. Không nên dùng Python
+`base` hoặc Python `3.13`, vì một số package ML như `numpy`, `scikit-learn`,
+`tensorflow` đang được pin theo môi trường demo Python 3.11.
+
+Tạo env bằng Conda:
 
 ```bash
-/home/ductien/miniconda3/envs/reis/bin/python
+# Clone repo nếu chưa có. Nếu đã clone rồi, chỉ cần cd vào thư mục repo của bạn.
+git clone https://github.com/CodeDaoVietNam/REIS.git reis
+cd reis
+
+conda create -n reis python=3.11 -y
+conda activate reis
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r backend/requirements.txt
 ```
 
-Nếu máy khác đường dẫn, thay bằng Python env tương ứng.
-
-### 5.1. Cài dependency
-
-Backend:
+Nếu cần chạy test/lint/notebook:
 
 ```bash
-cd /home/ductien/Documents/reis
-/home/ductien/miniconda3/envs/reis/bin/python -m pip install -r backend/requirements.txt
+python -m pip install -r backend/requirements-dev.txt
+```
+
+Kiểm tra nhanh:
+
+```bash
+python --version
+python -m pip check
 ```
 
 Frontend:
 
 ```bash
-cd /home/ductien/Documents/reis/frontend
+cd frontend
 npm install
+cd ..
 ```
 
 ### 5.2. Bật infra tối thiểu
 
 ```bash
-cd /home/ductien/Documents/reis
 docker-compose up -d zookeeper kafka redis timescaledb
 docker-compose ps
 ```
@@ -228,14 +243,14 @@ http://localhost:8090
 ### 5.3. Setup database
 
 ```bash
-cd /home/ductien/Documents/reis/backend
-/home/ductien/miniconda3/envs/reis/bin/python scripts/setup_db.py
+cd backend
+python scripts/setup_db.py
+cd ..
 ```
 
 Kiểm tra bảng:
 
 ```bash
-cd /home/ductien/Documents/reis
 docker-compose exec timescaledb psql -U reis -d reis_db -c "\dt"
 docker-compose exec timescaledb psql -U reis -d reis_db -c "select count(*) from env_readings;"
 ```
@@ -245,8 +260,9 @@ docker-compose exec timescaledb psql -U reis -d reis_db -c "select count(*) from
 Nên chạy trước demo để biểu đồ/forecast/insight có đủ dữ liệu:
 
 ```bash
-cd /home/ductien/Documents/reis/backend
-/home/ductien/miniconda3/envs/reis/bin/python scripts/backfill_historical_data.py --days 50
+cd backend
+python scripts/backfill_historical_data.py --days 50
+cd ..
 ```
 
 ### 5.5. Chạy realtime pipeline liên tục
@@ -254,21 +270,21 @@ cd /home/ductien/Documents/reis/backend
 Terminal 1: consumer Kafka -> TimescaleDB
 
 ```bash
-cd /home/ductien/Documents/reis/backend
+cd backend
 
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
 DB_HOST=localhost DB_PORT=5432 DB_USER=reis DB_PASSWORD=reis_secret DB_NAME=reis_db \
-/home/ductien/miniconda3/envs/reis/bin/python processing/consumer.py
+python processing/consumer.py
 ```
 
 Terminal 2: scheduler producer chạy liên tục mỗi 15 phút
 
 ```bash
-cd /home/ductien/Documents/reis/backend
+cd backend
 
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
 REDIS_HOST=localhost REDIS_PORT=6379 \
-/home/ductien/miniconda3/envs/reis/bin/python ingestion/scheduler.py
+python ingestion/scheduler.py
 ```
 
 `ingestion/scheduler.py` sẽ chạy một vòng ngay khi start, sau đó lặp lại mỗi 15 phút.
@@ -278,8 +294,8 @@ REDIS_HOST=localhost REDIS_PORT=6379 \
 Terminal 3:
 
 ```bash
-cd /home/ductien/Documents/reis/backend
-/home/ductien/miniconda3/envs/reis/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+cd backend
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Kiểm tra:
@@ -301,7 +317,7 @@ http://localhost:8000/docs
 Terminal 4:
 
 ```bash
-cd /home/ductien/Documents/reis/frontend
+cd frontend
 
 VITE_API_URL=http://localhost:8000 \
 VITE_WS_URL=ws://localhost:8000/ws/live \
@@ -382,23 +398,22 @@ Nguồn insight gồm:
 Backend route tests:
 
 ```bash
-cd /home/ductien/Documents/reis
-/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_api_routes.py -v
+python -m pytest backend/tests/test_api_routes.py -v
 ```
 
 Consumer + model tests:
 
 ```bash
-cd /home/ductien/Documents/reis
-/home/ductien/miniconda3/envs/reis/bin/python -m pytest backend/tests/test_consumer.py backend/tests/test_isolation_forest.py -v
+python -m pytest backend/tests/test_consumer.py backend/tests/test_isolation_forest.py -v
 ```
 
 Frontend:
 
 ```bash
-cd /home/ductien/Documents/reis/frontend
+cd frontend
 npm run lint
 npm run build
+cd ..
 ```
 
 ---
@@ -427,7 +442,6 @@ Kafka UI chỉ là tool phụ. Nếu Kafka healthy thì pipeline vẫn chạy đ
 Nếu Kafka bị kẹt session Zookeeper, chạy:
 
 ```bash
-cd /home/ductien/Documents/reis
 docker-compose up -d zookeeper
 sleep 20
 docker-compose up -d kafka kafka-ui redis timescaledb

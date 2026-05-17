@@ -24,8 +24,8 @@ venv/
 .venv/
 env/
 
-# Python version
-.python-version
+# Keep the project Python version visible for teammates/pyenv.
+!.python-version
 
 # ── Jupyter Notebooks ───────────────────────────────────────────────
 *.ipynb_checkpoints/

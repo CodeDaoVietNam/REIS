@@ -1,63 +1,48 @@
-# REIS — Python Dependencies
-# Install: pip install -r requirements.txt
+# REIS backend runtime dependencies
+#
+# IMPORTANT:
+# - Use Python 3.11.x. Do not install this file with Python 3.13/base.
+# - The project ships trained LSTM/Prophet artifacts, so tensorflow/prophet are
+#   included here to make fresh machines behave like the original demo env.
+# - Dev/test/notebook tools live in requirements-dev.txt.
 
-# ── Core Data Pipeline ───────────────────────────────────────────────
-requests==2.31.0          # HTTP client (sync)
-aiohttp==3.9.3            # Async HTTP client (async pipeline)
+# Core data pipeline
+requests==2.31.0
+aiohttp==3.9.3
 
-# ── Database ────────────────────────────────────────────────────────
-# asyncpg: fast async driver (requires libpq-dev: apt install libpq-dev)
-asyncpg==0.30.0           # Async PostgreSQL/TimescaleDB driver
-# psycopg3: modern async/sync driver (works on Python 3.13 without libpq-dev)
-psycopg[binary]==3.1.18   # PostgreSQL driver v3
-sqlalchemy[asyncio]==2.0.25  # ORM
+# Database
+asyncpg==0.30.0
+psycopg[binary]==3.1.18
+sqlalchemy[asyncio]==2.0.25
 
-# ── Message Broker ─────────────────────────────────────────────────
-# confluent-kafka: requires librdkafka
-#   Linux:  sudo apt install librdkafka-dev
-#   macOS:  brew install librdkafka
-# If install fails, use kafka-python-ng instead (pure Python, no C dep)
-kafka-python-ng==2.2.2    # Pure Python Kafka client (sync, legacy)
-aiokafka==0.10.0           # Async Kafka client (producer/consumer trong async pipeline)
+# Message broker
+kafka-python-ng==2.2.2
+aiokafka==0.10.0
 
-# ── Cache ───────────────────────────────────────────────────────────
-redis==5.0.1              # Redis client (DLQ + insight cache)
+# Cache and configuration
+redis==5.0.1
+python-dotenv==1.0.1
+pydantic==2.6.1
+pydantic-settings==2.1.0
 
-# ── Validation ─────────────────────────────────────────────────────
-pydantic==2.6.1           # Data validation (EnvironmentReading model)
-pydantic-settings==2.1.0   # Pydantic + env vars
+# Scheduling
+APScheduler==3.10.4
 
-# ── Scheduling ─────────────────────────────────────────────────────
-APScheduler==3.10.4       # APScheduler (15-min collection cycles)
+# API server and reporting
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+reportlab==4.2.5
 
-# ── API Server ─────────────────────────────────────────────────────
-fastapi==0.109.2          # FastAPI web framework
-uvicorn[standard]==0.27.1  # ASGI server (with reload, logs)
-python-multipart==0.0.9   # Form data parsing
-reportlab==4.2.5          # PDF report generation
+# LLM providers
+google-generativeai==0.8.3
+openai==1.82.0
 
-# ── LLM (Generative AI) ─────────────────────────────────────────────
-google-generativeai==0.8.3  # Gemini API client
-openai==1.82.0              # GPT fallback client
-
-# ── ML ─────────────────────────────────────────────────────────────
-numpy==1.26.4             # Numerical computing
-polars==1.12.0            # Fast DataFrame (works on Python 3.13, no C extension)
-pandas==2.2.3             # DataFrame (upgrade to 2.2.3 for Python 3.13 fix)
-scikit-learn==1.4.0       # Isolation Forest, preprocessing
-joblib==1.3.2              # Model serialization
-mlflow==2.13.0            # MLflow tracking client
-
-# Prophet — install separately after fixing pystan:
-# pip install prophet
-
-# ── Testing ───────────────────────────────────────────────────────
-pytest==8.3.0              # Testing framework
-pytest-asyncio==0.24.0     # Async test support
-pytest-cov==4.1.0          # Coverage reports
-
-# ── Dev Utilities ─────────────────────────────────────────────────
-python-dotenv==1.0.1       # Load .env files
-ruff==0.2.2                # Linter & formatter
-mypy==1.9.0                # Static type checker
-jupyterlab==4.1.2           # Jupyter notebooks
+# Data and ML runtime
+numpy==1.26.4
+polars==1.12.0
+pandas==2.2.3
+scikit-learn==1.4.0
+joblib==1.3.2
+tensorflow==2.15.1
+prophet==1.3.0
