@@ -66,16 +66,22 @@ async def run_schema(conn: asyncpg.Connection, drop: bool) -> None:
         except asyncpg.DuplicateObjectError:
             pass
 
-        # Split and execute statements one by one (CREATE TABLE / SELECT can't run together)
+        # Clean comment lines starting with '--' before splitting by ';'
+        cleaned_lines = []
+        for line in schema.splitlines():
+            if not line.strip().startswith("--"):
+                cleaned_lines.append(line)
+        cleaned_schema = "\n".join(cleaned_lines)
+
         statements = [
-            s.strip() for s in schema.split(";")
-            if s.strip() and not s.strip().startswith("--")
+            s.strip() for s in cleaned_schema.split(";")
+            if s.strip()
         ]
         for stmt in statements:
-            if stmt.upper().startswith("SELECT create_hypertable"):
+            if stmt.upper().startswith("SELECT CREATE_HYPERTABLE"):
                 # Extract the function call as-is (TimescaleDB special syntax)
                 await conn.execute(stmt)
-            elif stmt.upper().startswith("INSERT INTO provinces"):
+            elif stmt.upper().startswith("INSERT INTO PROVINCES"):
                 # upsert: ON CONFLICT DO NOTHING is fine
                 await conn.execute(stmt)
             elif stmt.upper().startswith("CREATE"):
