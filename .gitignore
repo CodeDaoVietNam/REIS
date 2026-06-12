@@ -36,7 +36,6 @@ env/
 # *.ipynb  filters below in a .gitattributes file instead
 
 # ── Data & Output ───────────────────────────────────────────────────
-docs/
 data_output/
 *.csv
 *.parquet
